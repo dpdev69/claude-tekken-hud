@@ -19,7 +19,6 @@ const alerted = atom({ plugin: 'tekken-hud', key: 'alerted' } as const, { ko: fa
 
 const PATH = 'export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"'
 
-// ponytail: debt is a git grep per turn, not a cached ledger; ceiling is repo size, add a cache if it ever passes the timeout
 // Counts in the project: the git root of $1 (the last file a tool touched), else of the session's folder.
 // git grep keeps it dependency-free and skips ignored files; outside a repo it searches three levels down.
 // Prints the project name, then the count.
@@ -60,28 +59,62 @@ export const parseMix = (stdout = ''): ModelCost[] | undefined => {
   }
 }
 
+// Tools that only read: any other tool (an edit, a shell command, an MCP tool, a workflow) may change files, so the
+// next refresh re-counts the debt after it finishes.
+const READERS = new Set(['Read', 'Grep', 'Glob', 'LS', 'WebFetch', 'WebSearch', 'ToolSearch', 'Skill', 'TodoWrite', 'AskUserQuestion'])
+// Edits made outside Claude (an editor, a terminal) are caught by a re-count at most this old.
+const DEBT_EVERY = 120_000
+// Today's spend moves slowly and ccusage reads every log, so it runs at most once a minute.
+const MIX_EVERY = 60_000
+
+let isDirty = true // the debt needs a count: at start, after a file-changing tool, on a new project
+let debtAt = -Infinity
+let mixAt = -Infinity
+let isMixDue = false // a refresh skipped the spend inside its minute; the 2s timer catches it up
+
 // A failed count keeps the last good one instead of blanking the band.
 async function refresh($: EngineInterface) {
-  const ran = await $.process.run(['sh', '-c', DEBT, 'sh', await read($, root)], { timeoutMs: 15000 }).catch(() => undefined)
-  const counted = parseDebt(ran?.stdout)
+  const startedAt = await $.clock.now()
 
-  if (counted) {
-    await update($, project, () => counted.name)
-    await update($, debt, () => counted.count)
+  if (isDirty || startedAt - debtAt >= DEBT_EVERY) {
+    isDirty = false // cleared first, so a write while the count runs asks for another
+    debtAt = startedAt
+
+    const ran = await $.process.run(['sh', '-c', DEBT, 'sh', await read($, root)], { timeoutMs: 15000 }).catch(() => undefined)
+    const counted = parseDebt(ran?.stdout)
+
+    if (counted) {
+      await update($, project, () => counted.name)
+      await update($, debt, () => counted.count)
+    } else {
+      isDirty = true // try again next turn
+    }
   }
 
-  // ponytail: ccusage per turn, ~0.5s installed or seconds via npx; cache by log mtime if it ever shows
-  const usage = await $.process.run(['sh', '-c', MIX], { timeoutMs: 90000 }).catch(() => undefined)
+  const now = await $.clock.now()
 
+  if (now - mixAt < MIX_EVERY) {
+    isMixDue = true
+    return
+  }
+
+  mixAt = now
+  isMixDue = false
+
+  const usage = await $.process.run(['sh', '-c', MIX], { timeoutMs: 90000 }).catch(() => undefined)
   const costs = parseMix(usage?.stdout)
 
   if (costs) {
     await update($, mix, () => costs)
+  } else {
+    isMixDue = true // retried once its minute is up
   }
 }
 
 // One refresh at a time: a call while one runs queues a single rerun, which reads the latest root.
 let running: Promise<void> | undefined
+// Each folder's git root, once looked up: one git process per folder, nested repos included.
+const tops = new Map<string, string>()
 let again = false
 
 function kick($: EngineInterface) {
@@ -104,11 +137,12 @@ function kick($: EngineInterface) {
 const phasesOf = (script = '') =>
   [...(script.match(/phases\s*:\s*\[([\s\S]*?)\]/)?.[1] ?? '').matchAll(/title\s*:\s*['"`]([^'"`]+)['"`]/g)].map(m => m[1] ?? '').filter(Boolean)
 
-// Which phase an agent belongs to: the phase its label starts with (`review:runtime` → Review), else its label's prefix.
+// Which phase an agent belongs to: the phase its label starts with (`review:runtime` → Review); a workflow with one
+// phase owns every agent; else the label's prefix stands in for a phase.
 const phaseOf = (label: string, phases: string[]) => {
   const head = label.toLowerCase().split(/[:/\s]/)[0] ?? ''
 
-  return phases.find(p => head.startsWith(p.toLowerCase()) || p.toLowerCase().startsWith(head)) ?? head
+  return phases.find(p => head.startsWith(p.toLowerCase()) || p.toLowerCase().startsWith(head)) ?? (phases.length === 1 ? phases[0] ?? head : head)
 }
 
 // The runs the band shows, from the recorded agents; also says which runs and agents are past keeping.
@@ -177,6 +211,11 @@ export const register: Register = on => {
         seen = sig
         await update($, tick, n => n + 1)
       }
+
+      // Catch-ups: spend skipped inside its minute, and a debt count gone stale (edits made outside Claude).
+      if ((isMixDue && now - mixAt >= MIX_EVERY) || now - debtAt >= DEBT_EVERY) {
+        kick($)
+      }
     })
     kick($) // never held up: kick runs in the background
 
@@ -240,6 +279,7 @@ export const register: Register = on => {
         await update($, runs, r => ({ ...r, [runId]: { name, phases: phases.length ? phases : (r[runId]?.phases ?? []), startedAt: r[runId]?.startedAt ?? startedAt } }))
       }
 
+      isDirty = true // its agents may edit files
       return ran
     }
 
@@ -249,26 +289,38 @@ export const register: Register = on => {
 
     if (dir) {
       void (async () => {
-        const known = await read($, root)
+        let top = tops.get(dir)
 
-        // ponytail: a repo nested inside the known root is only picked up after a file outside it is touched
-        if (known && (dir === known || dir.startsWith(`${known}/`))) {
-          return
+        if (top === undefined) {
+          const ran = await $.process
+            .run(['sh', '-c', `${PATH}; git -C "$1" rev-parse --show-toplevel`, 'sh', dir], { timeoutMs: 5000 })
+            .catch(() => undefined)
+          top = ran?.exitCode === 0 ? ran.stdout.trim() : ''
+
+          // Only repos are remembered: a folder outside any repo is checked again next time. A folder already mapped
+          // to a repo keeps that root for the session, even if it becomes a nested repo of its own later.
+          if (top) {
+            if (tops.size >= 1000) tops.clear()
+            tops.set(dir, top)
+          }
         }
-
-        const ran = await $.process
-          .run(['sh', '-c', `${PATH}; git -C "$1" rev-parse --show-toplevel`, 'sh', dir], { timeoutMs: 5000 })
-          .catch(() => undefined)
-        const top = ran?.exitCode === 0 ? ran.stdout.trim() : ''
 
         if (top && top !== (await read($, root))) {
           await update($, root, () => top)
+          isDirty = true
           kick($)
         }
       })()
     }
 
-    return next(e)
+    const ran = await next(e)
+
+    // Marked after the tool finishes, so a count that started mid-tool is followed by one that sees the change.
+    if (!READERS.has(e.tool)) {
+      isDirty = true
+    }
+
+    return ran
   }).catch(($, e, next) => next(e)) // tracking only: a failure here must never block a tool
 
   on('agent.spawn', async ($, e, next) => {

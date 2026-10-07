@@ -123,8 +123,15 @@ text{font-family:system-ui,-apple-system,sans-serif;font-style:italic;font-weigh
 
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 
+// The gap between a plate's name and its details: a dx offset, since SVG collapses runs of spaces.
+const GAP = 12
+
+// The text inside a plate of width w is told to span exactly the plate's inside, so a width estimate that is a
+// little off for the viewer's font scales the text a touch instead of spilling it past the plate's edge.
+const fit = (w: number) => ` textLength="${Math.max(10, w - 34 - 14)}" lengthAdjust="spacingAndGlyphs"`
+
 // A nameplate as wide as its model name and duty, never past the right edge.
-const plate = (a: Agent) => Math.min(850, Math.round(34 + short(a.model).length * 10.4 + 16 + cut(a.duty, 90).length * 7.4 + 24))
+const plate = (a: Agent) => Math.min(850, Math.round(34 + short(a.model).length * 10.4 + GAP + cut(a.duty, 90).length * 7.4 + 24))
 
 // A slanted label tag for the left column; red when it calls a danger.
 const tag = (y: number, text: string, isDanger = false) =>
@@ -176,7 +183,6 @@ ${tag(84, `TODAY $${total.toFixed(2)}`)}
 <g transform="translate(150,85)">${frame('mx', segments, 850, 14, 8)}</g>`
 
   // Fighter nameplates: a slanted plate with the model's color stripe; faded while the agent waits.
-  // ponytail: plate width from per-character estimates of the HUD font; measure in a browser if it ever clips
   const agents = p.agents
     .map((a, i) => {
       const y = 110 + i * 24
@@ -184,7 +190,7 @@ ${tag(84, `TODAY $${total.toFixed(2)}`)}
 <g transform="translate(150,${y})">
   <polygon points="8,0 ${plate(a)},0 ${plate(a) - 8},18 0,18" fill="#1b1b1b" stroke="#5a5a5a" stroke-width="1"/>
   <polygon points="8,0 26,0 18,18 0,18" fill="${tint(a.model)}"${a.isRunning ? '' : ' fill-opacity="0.35"'}/>
-  <text x="34" y="13.5" class="pv">${esc(short(a.model).toUpperCase())}<tspan class="pd">   ${esc(cut(a.duty, 90))}</tspan></text>
+  <text x="34" y="13.5" class="pv"${fit(plate(a))}>${esc(short(a.model).toUpperCase())}<tspan class="pd" dx="${GAP}">${esc(cut(a.duty, 90))}</tspan></text>
 </g>`
     })
     .join('')
@@ -193,31 +199,35 @@ ${tag(84, `TODAY $${total.toFixed(2)}`)}
   let y = 110 + p.agents.length * 24
   const runs = (p.runs ?? [])
     .map(r => {
-      const pips = r.phases
-        .map(ph => {
-          const dots = Array.from({ length: Math.max(1, ph.total) }, (_, i) => (i < ph.done ? '●' : '○')).join('')
-          return `<tspan class="pl">  ${esc(ph.name.toUpperCase())} </tspan><tspan fill="#f5c542" style="fill:#f5c542">${dots}</tspan>`
-        })
+      // Each phase: its name (cut to 12) and a pip per agent; widths estimated as drawn.
+      const phases = r.phases.map(ph => ({
+        name: cut(ph.name.toUpperCase(), 12),
+        dots: Array.from({ length: Math.max(1, ph.total) }, (_, i) => (i < ph.done ? '●' : '○')).join(''),
+      }))
+      const pips = phases
+        .map(ph => `<tspan class="pl" dx="${GAP}">${esc(ph.name)}</tspan><tspan fill="#f5c542" style="fill:#f5c542" dx="5">${ph.dots}</tspan>`)
         .join('')
-      const headText = `${r.name.toUpperCase()} · ${elapsed(r.secs)} · ${r.count} AGENT${r.count === 1 ? '' : 'S'}`
-      const pipChars = r.phases.reduce((n, ph) => n + ph.name.length + Math.max(1, ph.total) + 3, 0)
-      const headW = Math.min(850, Math.round(34 + headText.length * 10.4 + pipChars * 9 + 24))
+      const pipW = phases.reduce((n, ph) => n + GAP + ph.name.length * 9.4 + 5 + ph.dots.length * 12, 0)
+      // The name line gets the room the pips leave, so the plate never has to squeeze it.
+      const room = Math.max(16, Math.floor((850 - 58 - pipW) / 10.4))
+      const headText = cut(`${r.name.toUpperCase()} · ${elapsed(r.secs)} · ${r.count} AGENT${r.count === 1 ? '' : 'S'}`, room)
+      const headW = Math.min(850, Math.round(34 + headText.length * 10.4 + pipW + 24))
       const head = `${tag(y + 1, 'WORKFLOW')}
 <g transform="translate(150,${y})">
   <polygon points="8,0 ${headW},0 ${headW - 8},18 0,18" fill="#1b1b1b" stroke="#f5c542" stroke-width="1"/>
   <polygon points="8,0 26,0 18,18 0,18" fill="#f5c542"/>
-  <text x="34" y="13.5" class="pv">${esc(cut(headText, 70))}${pips}</text>
+  <text x="34" y="13.5" class="pv"${fit(headW)}>${esc(headText)}${pips}</text>
 </g>`
       y += 24
       const rows = r.agents
         .map(a => {
           const text = `${a.label.toUpperCase()}`
-          const meta = `   ${short(a.model).toUpperCase()} · ${elapsed(a.secs)}`
-          const w = Math.min(830, Math.round(34 + cut(text, 40).length * 10.4 + meta.length * 7.4 + 24))
+          const meta = `${short(a.model).toUpperCase()} · ${elapsed(a.secs)}`
+          const w = Math.min(830, Math.round(34 + cut(text, 40).length * 10.4 + GAP + meta.length * 7.4 + 24))
           const row = `<g transform="translate(170,${y})">
   <polygon points="8,0 ${w},0 ${w - 8},18 0,18" fill="#1b1b1b" stroke="#5a5a5a" stroke-width="1"/>
   <polygon points="8,0 26,0 18,18 0,18" fill="${tint(a.model)}"/>
-  <text x="34" y="13.5" class="pv">${esc(cut(text, 40))}<tspan class="pd">${esc(meta)}</tspan></text>
+  <text x="34" y="13.5" class="pv"${fit(w)}>${esc(cut(text, 40))}<tspan class="pd" dx="${GAP}">${esc(meta)}</tspan></text>
 </g>`
           y += 24
           return row

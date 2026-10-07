@@ -1,4 +1,5 @@
-import { test, expect } from 'claude-code/testing'
+import { mock, test, expect } from 'claude-code/testing'
+import type { On } from 'claude-code'
 
 import { parseDebt, parseMix } from './register'
 
@@ -92,4 +93,50 @@ test('a workflow shows its name, phase pips and running agents', async ($, on) =
   const src = String((await ui.find({ type: 'Svg' }))?.props.source)
   for (const bit of ['TEKKEN-HUD-REVIEW', '2 AGENTS', 'REVIEW', 'VERIFY', 'REVIEW:RUNTIME', 'REVIEW:REPO']) expect(src).toContain(bit)
   await ui.unmount()
+})
+
+// Answers git, the debt count and ccusage beneath the plugin, tallying each kind of run.
+function world(on: On) {
+  const state: Record<string, unknown> = {}
+  const ran = { debt: 0, mix: 0, revParse: 0 }
+  on('state.get', (_$, e: any) => ({ value: { value: state[e.key], version: 0 } }) as never)
+  on('state.set', (_$, e: any) => {
+    state[e.key] = e.value
+    return { value: { isSet: true, version: 1 } } as never
+  })
+  on('tool.call', () => ({ result: 'ok' }) as never)
+  on('turn.complete', () => ({ text: '' }) as never)
+  on('process.run', (_$, e: any) => {
+    const sh = String(e.argv[2])
+    const kind = sh.includes('git grep') ? 'debt' : sh.includes('ccusage') ? 'mix' : 'revParse'
+    ran[kind]++
+    const stdout = { debt: 'repo\n3\n', mix: '{"daily":[]}', revParse: '/repo\n' }[kind]
+    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false } } as never
+  })
+  return { state, ran }
+}
+
+test('only a file-changing tool re-counts the debt; spend runs once a minute', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000_000 })
+  const { ran } = world(on)
+  const turn = async () => {
+    await $.turn.complete({ answer: '', durationMs: 0, isAborted: false, turnId: 't' } as never)
+    await clock.settle()
+  }
+
+  await $.tool.call({ tool: 'Read', file_path: '/repo/a.ts' } as never) // new project: one rev-parse, one count
+  await clock.settle()
+  expect(ran).toEqual({ debt: 1, mix: 1, revParse: 1 })
+
+  await $.tool.call({ tool: 'Read', file_path: '/repo/b.ts' } as never) // same folder: cached root
+  await turn()
+  expect(ran).toEqual({ debt: 1, mix: 1, revParse: 1 })
+
+  await $.tool.call({ tool: 'Write', file_path: '/repo/x.ts', content: '' } as never)
+  await turn()
+  expect(ran).toEqual({ debt: 2, mix: 1, revParse: 1 })
+
+  await clock.advance(60_000)
+  await turn()
+  expect(ran).toEqual({ debt: 2, mix: 2, revParse: 1 })
 })

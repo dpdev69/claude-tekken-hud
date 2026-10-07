@@ -30,6 +30,10 @@ https://github.com/user-attachments/assets/66344f22-7c74-44cb-829c-7b959ea552c1
 
 ![Workflow](media/workflow.png)
 
+Live in the desktop app, while three agents verified this release:
+
+![Tekken HUD live in Claude Code](media/live.png)
+
 **K.O.** pops as a toast when the 5-hour limit hits 100%, the moment P2's bar runs out. (The big K.O. lettering is from the launch video; in the app you get the toast.)
 
 ![K.O.](media/ko.gif)
