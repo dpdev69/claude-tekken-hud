@@ -2,11 +2,7 @@
 
 Your Claude Code session, as a fighting game. Context window, rate limits, daily spend, tech debt and your running subagents become health bars, stamina, nameplates and a K.O. toast, drawn above the prompt.
 
-[![Launch video](media/launch-poster.png)]
-
 https://github.com/user-attachments/assets/66344f22-7c74-44cb-829c-7b959ea552c1
-
-
 
 ![Tekken HUD](media/hero.png)
 
@@ -30,7 +26,9 @@ https://github.com/user-attachments/assets/66344f22-7c74-44cb-829c-7b959ea552c1
 
 ![Agents](media/agents.gif)
 
-**K.O.** pops as a toast when the 5-hour limit hits 100%.
+**K.O.** pops as a toast when the 5-hour limit hits 100%, the moment P2's bar runs out. (The big K.O. lettering is from the launch video; in the app you get the toast.)
+
+![K.O.](media/ko.gif)
 
 ## Install
 
