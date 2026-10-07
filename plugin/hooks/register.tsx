@@ -13,13 +13,17 @@ const project = atom({ plugin: 'tekken-hud', key: 'project' } as const, '')
 const root = atom({ plugin: 'tekken-hud', key: 'root' } as const, '')
 const mix = atom({ plugin: 'tekken-hud', key: 'mix' } as const, [] as ModelCost[])
 
-// ponytail: debt is an rg per turn, not a cached ledger; ceiling is repo size, add a cache if it ever passes the timeout
+// ponytail: debt is a git grep per turn, not a cached ledger; ceiling is repo size, add a cache if it ever passes the timeout
 // Counts in the project: the git root of $1 (the last file a tool touched), else of the session's folder.
+// git grep keeps it dependency-free and skips ignored files; outside a repo it searches the folder.
 // Prints the project name, then the count.
-const DEBT = `export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; cd "\${1:-.}" 2>/dev/null; cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" && basename "$PWD" && rg -c --no-messages '(#|//|/[*]) ?ponytail:' . | awk -F: '{s+=$NF} END {print s+0}'`
+const DEBT = `export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; P='(#|//|/[*]) ?ponytail:'
+cd "\${1:-.}" 2>/dev/null; cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" && basename "$PWD" &&
+{ git grep --untracked -I -c -E "$P" 2>/dev/null || git grep --no-index --exclude-standard -I -c -E "$P" 2>/dev/null; } | awk -F: '{s+=$NF} END {print s+0}'`
 
-// Today's cost per model, from ccusage over the local logs.
-const MIX = `export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; npx -y ccusage@20.0.26 daily --json --breakdown --since $(date +%Y%m%d)`
+// Today's cost per model, from ccusage over the local logs: the installed one when setup.sh put it there, else npx.
+const MIX = `export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; S=$(date +%Y%m%d)
+if command -v ccusage >/dev/null; then ccusage daily --json --breakdown --since $S; else npx -y ccusage@20.0.26 daily --json --breakdown --since $S; fi`
 
 const LIVE = ['running', 'pending', 'waiting'] as const
 

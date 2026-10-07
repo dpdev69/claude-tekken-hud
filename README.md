@@ -32,18 +32,34 @@ https://github.com/user-attachments/assets/66344f22-7c74-44cb-829c-7b959ea552c1
 
 ## Install
 
+One line sets up the prerequisites (Node and a pinned ccusage, via Homebrew on macOS; no sudo, safe to re-run):
+
+```
+curl -fsSL https://raw.githubusercontent.com/dpdev69/claude-tekken-hud/main/setup.sh | sh
+```
+
+Then in Claude Code:
+
 ```
 /plugin marketplace add dpdev69/claude-tekken-hud
 /plugin install tekken-hud@claude-tekken-hud
 ```
 
-Then `/reload-plugins`.
+and `/reload-plugins` to load it into an open session.
 
 ## Requirements
 
-- [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) for the DEBT count.
-- Node/npx for spend (runs `ccusage`). Optional: the TODAY row hides without it.
-- The desktop app's Code tab draws the full HUD. The terminal gets a text fallback.
+What `setup.sh` checks for, and what happens without each:
+
+| | Used for | Without it |
+|---|---|---|
+| git | the DEBT count (`git grep`, so ignored files stay out) | DEBT shows `?` |
+| Node | runs ccusage for the TODAY spend row | the TODAY row hides |
+| ccusage 20.0.26 | today's spend by model | falls back to `npx`, a few seconds slower per turn |
+
+`sh setup.sh --check` reports what's missing without installing anything.
+
+The desktop app's Code tab draws the full HUD; the terminal gets a text fallback.
 
 ## Rebuild the media
 
