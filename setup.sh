@@ -13,11 +13,13 @@ set -eu
 
 CCUSAGE=20.0.26
 CHECK=0
+MISSING=0
 [ "${1:-}" = "--check" ] && CHECK=1
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 ok() { printf '  \033[32m✔\033[0m %s\n' "$1"; }
-no() { printf '  \033[31m✘\033[0m %s\n' "$1"; }
+no() { printf '  \033[31m✘\033[0m %s\n' "$1"; MISSING=1; }
+warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }
 say() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
 say "TEKKEN HUD · checking your corner"
@@ -45,12 +47,16 @@ if command -v node >/dev/null 2>&1; then
   if [ "$(ccusage --version 2>/dev/null | awk '{print $NF}')" = "$CCUSAGE" ]; then
     ok "ccusage $CCUSAGE"
   elif [ $CHECK = 1 ]; then
-    no "ccusage $CCUSAGE not installed globally: the HUD falls back to npx (slower)"
+    warn "ccusage $CCUSAGE not installed globally: the HUD falls back to npx (slower)"
   else
     say "Installing ccusage $CCUSAGE"
     npm install -g "ccusage@$CCUSAGE" >/dev/null && ok "ccusage $CCUSAGE" || no "npm install failed: the HUD falls back to npx"
   fi
+
+  case "$(command -v ccusage 2>/dev/null)" in ""|/opt/homebrew/bin/*|/usr/local/bin/*) ;; *) warn "ccusage is outside /opt/homebrew/bin and /usr/local/bin: the desktop app may not find it (symlink it into /usr/local/bin)";; esac
 fi
+
+[ $MISSING = 1 ] && { say "Fix the ✘ items above"; exit 1; }
 
 say "Ready. In Claude Code:"
 echo "  /plugin marketplace add dpdev69/claude-tekken-hud"

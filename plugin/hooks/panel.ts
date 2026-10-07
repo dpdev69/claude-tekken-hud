@@ -15,8 +15,33 @@ export const short = (model?: string) => model?.replace(/^claude-/, '') ?? 'mode
 
 export const clamp = (n: number) => Math.min(100, Math.max(0, n))
 
-// Green when low, through yellow, to red when high.
-export const heat = (pct: number) => `hsl(${Math.round(120 * (1 - clamp(pct) / 100))}, 85%, 50%)`
+// Green when low, through yellow, to red when high: hsl(120→0, 85%, 50%) as hex, which every surface takes.
+export const heat = (pct: number) => {
+  const h = 120 * (1 - clamp(pct) / 100)
+
+  return `#${[0, 8, 4]
+    .map(n => {
+      const k = (n + h / 30) % 12
+      return Math.round(255 * (0.5 - 0.425 * Math.max(-1, Math.min(k - 3, 9 - k, 1))))
+        .toString(16)
+        .padStart(2, '0')
+    })
+    .join('')}`
+}
+
+// Elapsed time, short: 44s, 2:05, 1:02:05.
+export const elapsed = (secs: number) => {
+  const s = Math.max(0, Math.floor(secs))
+
+  if (s < 60) {
+    return `${s}s`
+  }
+
+  const [h, m] = [Math.floor(s / 3600), Math.floor((s % 3600) / 60)]
+  const ss = String(s % 60).padStart(2, '0')
+
+  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
+}
 
 // h:mm until an ISO time, or '' when unknown.
 export const countdown = (iso: string | undefined, now: number) => {
@@ -59,6 +84,17 @@ function bar(id: string, pct: number, color: string, isDanger: boolean, w: numbe
 
 export type Agent = { key: string; model: string; duty: string; isRunning: boolean }
 
+// One workflow run: its name and age, its phases as done/total pips, and the agents still running.
+export type Run = {
+  key: string
+  name: string
+  secs: number
+  count: number
+  phases: { name: string; done: number; total: number }[]
+  agents: { key: string; label: string; model: string; secs: number }[]
+  more: number
+}
+
 export type Panel = {
   name: string
   ctx: number
@@ -68,15 +104,20 @@ export type Panel = {
   week: number
   costs: ModelCost[]
   agents: Agent[]
+  runs?: Run[]
 }
 
-// Heavy italic type throughout, like the game's HUD; light mode flips the text.
+// Heavy italic type throughout, like the game's HUD. Light mode flips text drawn on the band (.l .v .d);
+// text on the dark plates and tags (.pl .pv .pd) stays light in both themes.
 const STYLE = `<style>
 text{font-family:system-ui,-apple-system,sans-serif;font-style:italic;font-weight:800;letter-spacing:.05em}
 .l{fill:#9a9a9a;font-size:13px}
 .v{fill:#f0f0f0;font-size:14px}
 .d{fill:#9a9a9a;font-size:13px;font-weight:600;letter-spacing:.01em}
 .in{fill:#141414;font-size:11px;font-weight:900}
+.pl{fill:#9a9a9a;font-size:13px}
+.pv{fill:#f0f0f0;font-size:14px}
+.pd{fill:#9a9a9a;font-size:13px;font-weight:600;letter-spacing:.01em}
 @media (prefers-color-scheme:light){.l,.d{fill:#5f5f5f}.v{fill:#2b2b2b}}
 </style>`
 
@@ -88,7 +129,7 @@ const plate = (a: Agent) => Math.min(850, Math.round(34 + short(a.model).length 
 // A slanted label tag for the left column; red when it calls a danger.
 const tag = (y: number, text: string, isDanger = false) =>
   `<polygon points="6,${y} 136,${y} 130,${y + 16} 0,${y + 16}" fill="#1b1b1b" stroke="${isDanger ? '#E5534B' : '#5a5a5a'}" stroke-width="1"/>
-<text x="12" y="${y + 12.5}" class="l"${isDanger ? ' style="fill:#E5534B"' : ''}>${text}</text>`
+<text x="12" y="${y + 12.5}" class="pl"${isDanger ? ' style="fill:#E5534B"' : ''}>${text}</text>`
 
 // Everything on one 1000-wide grid, so it scales to the band as one piece: tags at 0, gauges from
 // 150 to the right edge. P1 is context filling up; P2 is the 5-hour limit, its health draining as you
@@ -143,13 +184,53 @@ ${tag(84, `TODAY $${total.toFixed(2)}`)}
 <g transform="translate(150,${y})">
   <polygon points="8,0 ${plate(a)},0 ${plate(a) - 8},18 0,18" fill="#1b1b1b" stroke="#5a5a5a" stroke-width="1"/>
   <polygon points="8,0 26,0 18,18 0,18" fill="${tint(a.model)}"${a.isRunning ? '' : ' fill-opacity="0.35"'}/>
-  <text x="34" y="13.5" class="v">${esc(short(a.model).toUpperCase())}<tspan class="d">   ${esc(cut(a.duty, 90))}</tspan></text>
+  <text x="34" y="13.5" class="pv">${esc(short(a.model).toUpperCase())}<tspan class="pd">   ${esc(cut(a.duty, 90))}</tspan></text>
 </g>`
     })
     .join('')
 
-  const height = 110 + p.agents.length * 24
+  // Workflows: a gold header plate per run with phase pips, then a plate per running agent, +N past four.
+  let y = 110 + p.agents.length * 24
+  const runs = (p.runs ?? [])
+    .map(r => {
+      const pips = r.phases
+        .map(ph => {
+          const dots = Array.from({ length: Math.max(1, ph.total) }, (_, i) => (i < ph.done ? '●' : '○')).join('')
+          return `<tspan class="pl">  ${esc(ph.name.toUpperCase())} </tspan><tspan fill="#f5c542" style="fill:#f5c542">${dots}</tspan>`
+        })
+        .join('')
+      const headText = `${r.name.toUpperCase()} · ${elapsed(r.secs)} · ${r.count} AGENT${r.count === 1 ? '' : 'S'}`
+      const pipChars = r.phases.reduce((n, ph) => n + ph.name.length + Math.max(1, ph.total) + 3, 0)
+      const headW = Math.min(850, Math.round(34 + headText.length * 10.4 + pipChars * 9 + 24))
+      const head = `${tag(y + 1, 'WORKFLOW')}
+<g transform="translate(150,${y})">
+  <polygon points="8,0 ${headW},0 ${headW - 8},18 0,18" fill="#1b1b1b" stroke="#f5c542" stroke-width="1"/>
+  <polygon points="8,0 26,0 18,18 0,18" fill="#f5c542"/>
+  <text x="34" y="13.5" class="pv">${esc(cut(headText, 70))}${pips}</text>
+</g>`
+      y += 24
+      const rows = r.agents
+        .map(a => {
+          const text = `${a.label.toUpperCase()}`
+          const meta = `   ${short(a.model).toUpperCase()} · ${elapsed(a.secs)}`
+          const w = Math.min(830, Math.round(34 + cut(text, 40).length * 10.4 + meta.length * 7.4 + 24))
+          const row = `<g transform="translate(170,${y})">
+  <polygon points="8,0 ${w},0 ${w - 8},18 0,18" fill="#1b1b1b" stroke="#5a5a5a" stroke-width="1"/>
+  <polygon points="8,0 26,0 18,18 0,18" fill="${tint(a.model)}"/>
+  <text x="34" y="13.5" class="pv">${esc(cut(text, 40))}<tspan class="pd">${esc(meta)}</tspan></text>
+</g>`
+          y += 24
+          return row
+        })
+        .join('')
+      const more = r.more > 0 ? `<text x="204" y="${y + 13.5}" class="l">+${r.more} more</text>` : ''
+      y += r.more > 0 ? 24 : 0
+      return head + rows + more
+    })
+    .join('')
+
+  const height = y
 
   // The markup asks for more width than any band has, so the host draws it at the band's full width.
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 ${height}" width="4000" height="${4 * height}">${STYLE}${versus}${stamina}${mixRow}${agents}</svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 ${height}" width="4000" height="${4 * height}">${STYLE}${versus}${stamina}${mixRow}${agents}${runs}</svg>`
 }

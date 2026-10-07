@@ -26,6 +26,10 @@ https://github.com/user-attachments/assets/66344f22-7c74-44cb-829c-7b959ea552c1
 
 ![Agents](media/agents.gif)
 
+**WORKFLOW** shows each multi-agent workflow run as a gold plate: its name, how long it has run, how many agents it started, and a pip per agent in each phase (filled when done). Under it, a nameplate per agent still running, with its label, model and time; past four they fold into `+N more`. A finished run clears itself after 30 seconds.
+
+![Workflow](media/workflow.png)
+
 **K.O.** pops as a toast when the 5-hour limit hits 100%, the moment P2's bar runs out. (The big K.O. lettering is from the launch video; in the app you get the toast.)
 
 ![K.O.](media/ko.gif)
@@ -57,16 +61,24 @@ What `setup.sh` checks for, and what happens without each:
 | Node | runs ccusage for the TODAY spend row | the TODAY row hides |
 | ccusage 20.0.26 | today's spend by model | falls back to `npx`, a few seconds slower per turn |
 
-`sh setup.sh --check` reports what's missing without installing anything.
+`sh setup.sh --check` reports what's missing without installing anything. The desktop app doesn't load your shell profile, so the hooks add `/opt/homebrew/bin` and `/usr/local/bin` to the app's own PATH; a `ccusage` or `node` installed by nvm, volta or fnm needs a symlink into `/usr/local/bin`.
 
 The desktop app's Code tab draws the full HUD; the terminal gets a text fallback.
 
 ## Rebuild the media
 
+Needs Google Chrome (set `CHROME` to use another path) and `ffmpeg` on your PATH.
+
 ```
 npm install
-npx tsx scripts/gifs.ts
-npx tsx scripts/video.ts
+npm run gifs
+npm run video
+```
+
+`media/ko.gif` is cut from `media/launch.mp4`:
+
+```
+ffmpeg -ss 24.5 -t 4 -i media/launch.mp4 -vf "crop=1920:800:0:240,fps=15,scale=1100:-1:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4" -loop 0 media/ko.gif
 ```
 
 MIT.

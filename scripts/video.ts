@@ -13,8 +13,8 @@ import { chromium } from 'playwright-core'
 import type { Agent, Panel } from '../plugin/hooks/panel.ts'
 import { renderFrames } from './render.ts'
 
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-const FFMPEG = '/opt/homebrew/bin/ffmpeg'
+const CHROME = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+const FFMPEG = 'ffmpeg'
 const DIR = '.frames/video'
 const FPS = 30
 const END = 33.5 // seconds

@@ -1,4 +1,4 @@
-// Builds media/hero.png and the README GIFs.   npx tsx scripts/gifs.ts
+// Builds media/hero.png and the README GIFs.   npm run gifs
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, mkdirSync, rmSync } from 'node:fs'
 
@@ -7,8 +7,8 @@ import { renderFrames } from './render.ts'
 
 const FPS = 16
 const W = 1100
-const FFMPEG = '/opt/homebrew/bin/ffmpeg'
-const FFPROBE = '/opt/homebrew/bin/ffprobe'
+// Card height for the tallest state (3 agents): panel svg is 1000 x (110 + agents*24) units, shown at the card's inner width, plus 18px padding top and bottom.
+const MIN_H = Math.ceil(((W - 44) * (110 + 3 * 24)) / 1000) + 36
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * Math.min(1, Math.max(0, t))
 const hm = (min: number) => `${Math.floor(min / 60)}:${String(Math.round(min) % 60).padStart(2, '0')}`
@@ -32,18 +32,13 @@ const opus = ag('o', 'opus-5-5', 'this chat')
 const sonnet = ag('s', 'sonnet-5-5', 'Research Claude Code mods on GitHub')
 const haiku = ag('h', 'haiku-5-5', 'Validate the plugin')
 
-// Build a GIF from a state-at-time function (seconds), then pad frames to one size and encode.
+// Build a GIF from a state-at-time function (seconds). Frames share one height (MIN_H), so ffmpeg takes the PNG sequence as is.
 async function gif(name: string, seconds: number, at: (t: number) => Panel) {
   const dir = `.frames/gifs/${name}`
   rmSync(dir, { recursive: true, force: true })
   const n = Math.round(seconds * FPS)
-  await renderFrames(Array.from({ length: n }, (_, i) => at(i / FPS)), dir, W)
-  // Agent counts change the frame height: pad every frame to the tallest (ffmpeg would otherwise rescale), then palette-encode.
-  execFileSync('bash', ['-c', `
-    set -e; cd ${dir}; mkdir -p pad
-    H=$(for f in 0*.png; do ${FFPROBE} -v error -show_entries stream=height -of csv=p=0 $f; done | sort -n | tail -1)
-    for f in 0*.png; do ${FFMPEG} -v error -y -i $f -vf "pad=${W}:$H:0:0:color=0x1f1e1d" pad/$f; done
-    ${FFMPEG} -v error -y -framerate ${FPS} -i pad/%04d.png -vf "split[a][b];[a]palettegen=stats_mode=full[p];[b][p]paletteuse=dither=none" -loop 0 ../../../media/${name}.gif`])
+  await renderFrames(Array.from({ length: n }, (_, i) => at(i / FPS)), dir, W, MIN_H)
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-framerate', String(FPS), '-i', `${dir}/%04d.png`, '-vf', 'split[a][b];[a]palettegen=stats_mode=full[p];[b][p]paletteuse=dither=none', '-loop', '0', `media/${name}.gif`])
 }
 
 mkdirSync('media', { recursive: true })

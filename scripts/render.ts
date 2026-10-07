@@ -12,21 +12,21 @@ import { chromium } from 'playwright-core'
 import { panel } from '../plugin/hooks/panel.ts'
 import type { Panel } from '../plugin/hooks/panel.ts'
 
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+const CHROME = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 
 // The band as the desktop app draws it: a dark rounded card on the chat background.
-const PAGE = (width: number) => `<!doctype html><meta charset="utf-8">
+const PAGE = (width: number, minHeight: number) => `<!doctype html><meta charset="utf-8">
 <body style="margin:0;background:#1f1e1d">
-<div id="card" style="width:${width}px;box-sizing:border-box;margin:24px;padding:18px 22px;background:#262624;border-radius:14px">
+<div id="card" style="width:${width}px;box-sizing:border-box;min-height:${minHeight}px;margin:24px;padding:18px 22px;background:#262624;border-radius:14px">
 <img id="hud" style="width:100%;display:block">
 </div>`
 
-export async function renderFrames(states: Panel[], outDir: string, width = 1500) {
+export async function renderFrames(states: Panel[], outDir: string, width = 1500, minHeight = 0) {
   mkdirSync(outDir, { recursive: true })
 
   const browser = await chromium.launch({ executablePath: CHROME })
   const page = await browser.newPage({ viewport: { width: width + 48, height: 600 }, colorScheme: 'dark', deviceScaleFactor: 1 })
-  await page.setContent(PAGE(width))
+  await page.setContent(PAGE(width, minHeight))
   const card = page.locator('#card')
 
   for (const [i, state] of states.entries()) {

@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "frames": "tsx scripts/render.ts"
+    "gifs": "tsx scripts/gifs.ts",
+    "video": "tsx scripts/video.ts"
   },
   "devDependencies": {
     "playwright-core": "^1.49.1",
