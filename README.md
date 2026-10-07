@@ -2,7 +2,11 @@
 
 Your Claude Code session, as a fighting game. Context window, rate limits, daily spend, tech debt and your running subagents become health bars, stamina, nameplates and a K.O. toast, drawn above the prompt.
 
-[![Launch video](media/launch-poster.png)](media/launch.mp4)
+[![Launch video](media/launch-poster.png)]
+
+https://github.com/user-attachments/assets/66344f22-7c74-44cb-829c-7b959ea552c1
+
+
 
 ![Tekken HUD](media/hero.png)
 
