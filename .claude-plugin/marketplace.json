@@ -1,0 +1,16 @@
+{
+  "$schema": "https://code.claude.com/schemas/marketplace.json",
+  "name": "claude-tekken-hud",
+  "description": "Tekken-style fight HUD for Claude Code",
+  "owner": { "name": "dpdev69" },
+  "plugins": [
+    {
+      "name": "tekken-hud",
+      "source": "./plugin",
+      "description": "Tekken-style fight HUD above the Claude Code prompt",
+      "version": "1.0.0",
+      "license": "MIT",
+      "homepage": "https://github.com/dpdev69/claude-tekken-hud"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "claude-tekken-hud-media",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "frames": "tsx scripts/render.ts"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.49.1",
+    "tsx": "^4.19.2"
+  }
+}
