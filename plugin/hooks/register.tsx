@@ -22,7 +22,7 @@ const PATH = 'export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"'
 // Counts in the project: the git root of $1 (the last file a tool touched), else of the session's folder.
 // git grep keeps it dependency-free and skips ignored files; outside a repo it searches three levels down.
 // Prints the project name, then the count.
-const DEBT = `${PATH}; P='(#|//|/[*]) ?ponytail:'
+const DEBT = `${PATH}; command -v git >/dev/null || exit 1; P='(#|//|/[*]) ?ponytail:'
 cd "\${1:-.}" 2>/dev/null; cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" && basename "$PWD" &&
 { if git rev-parse -q --git-dir >/dev/null 2>&1; then git grep --untracked -I -c -E "$P"
   else git grep --no-index --exclude-standard --max-depth 3 -I -c -E "$P"; fi; } 2>/dev/null | awk -F: '{s+=$NF} END {print s+0}'`

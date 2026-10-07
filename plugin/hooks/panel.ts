@@ -178,14 +178,17 @@ ${
       return seg
     })
     .join('')
-  const mixRow = `
+  // No spend data (no Node or ccusage): the TODAY row is left out and the rows below move up.
+  const hasMix = p.costs.length > 0
+  const below = hasMix ? 110 : 84
+  const mixRow = !hasMix ? '' : `
 ${tag(84, `TODAY $${total.toFixed(2)}`)}
 <g transform="translate(150,85)">${frame('mx', segments, 850, 14, 8)}</g>`
 
   // Fighter nameplates: a slanted plate with the model's color stripe; faded while the agent waits.
   const agents = p.agents
     .map((a, i) => {
-      const y = 110 + i * 24
+      const y = below + i * 24
       return `${i === 0 ? tag(y + 1, 'RUNNING') : ''}
 <g transform="translate(150,${y})">
   <polygon points="8,0 ${plate(a)},0 ${plate(a) - 8},18 0,18" fill="#1b1b1b" stroke="#5a5a5a" stroke-width="1"/>
@@ -196,7 +199,7 @@ ${tag(84, `TODAY $${total.toFixed(2)}`)}
     .join('')
 
   // Workflows: a gold header plate per run with phase pips, then a plate per running agent, +N past four.
-  let y = 110 + p.agents.length * 24
+  let y = below + p.agents.length * 24
   const runs = (p.runs ?? [])
     .map(r => {
       // Each phase: its name (cut to 12) and a pip per agent; widths estimated as drawn.
