@@ -40,13 +40,21 @@ Live in the desktop app, while three agents verified this release:
 
 ## Install
 
-One line sets up the prerequisites (Node and a pinned ccusage, via Homebrew on macOS; no sudo, safe to re-run):
+One line sets up the prerequisites (Node and a pinned ccusage, via Homebrew on macOS or winget on Windows; no sudo or admin, safe to re-run).
+
+On macOS and Linux:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/dpdev69/claude-tekken-hud/main/setup.sh | sh
 ```
 
-Then in Claude Code:
+On Windows, in PowerShell:
+
+```
+irm https://raw.githubusercontent.com/dpdev69/claude-tekken-hud/main/setup.ps1 | iex
+```
+
+Then in Claude Code (on Windows, enter the `/plugin ...` commands one at a time):
 
 ```
 /plugin marketplace add dpdev69/claude-tekken-hud
@@ -57,7 +65,7 @@ and `/reload-plugins` to load it into an open session.
 
 ## Requirements
 
-What `setup.sh` checks for, and what happens without each:
+What `setup.sh` and `setup.ps1` check for, and what happens without each:
 
 | | Used for | Without it |
 |---|---|---|
@@ -65,9 +73,13 @@ What `setup.sh` checks for, and what happens without each:
 | Node | runs ccusage for the TODAY spend row | the TODAY row hides |
 | ccusage 20.0.26 | today's spend by model | falls back to `npx`, a few seconds slower per turn |
 
-`sh setup.sh --check` reports what's missing without installing anything. The desktop app doesn't load your shell profile, so the hooks add `/opt/homebrew/bin` and `/usr/local/bin` to the app's own PATH; a `ccusage` or `node` installed by nvm, volta or fnm needs a symlink into `/usr/local/bin`.
+`sh setup.sh --check` (or `.\setup.ps1 -Check` on Windows) reports what's missing without installing anything. The desktop app doesn't load your shell profile, so the hooks add `/opt/homebrew/bin` and `/usr/local/bin` to the app's own PATH; a `ccusage` or `node` installed by nvm, volta or fnm needs a symlink into `/usr/local/bin`. On Windows the hooks add `%APPDATA%\npm`, `%ProgramFiles%\nodejs` and Git's `cmd` folder instead; a `ccusage` installed by nvm-windows, volta or fnm needs its folder on the system PATH. `irm | iex` can't take parameters, so download `setup.ps1` first to use `-Check`.
 
 The desktop app's Code tab draws the full HUD; the terminal gets a text fallback.
+
+## Windows
+
+Native Windows Claude Code is supported from 1.3.0. No Git Bash or WSL needed. `git` must be on PATH for DEBT (Git for Windows).
 
 ## Rebuild the media
 
