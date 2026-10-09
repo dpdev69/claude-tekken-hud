@@ -17,19 +17,9 @@ const wf = atom({ plugin: 'tekken-hud', key: 'wf' } as const, {} as WfAgents)
 // Kept in state so a reload doesn't toast again for a limit already crossed.
 const alerted = atom({ plugin: 'tekken-hud', key: 'alerted' } as const, { ko: false, final: false })
 
-const PATH = 'export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"'
-
-// Counts in the project: the git root of $1 (the last file a tool touched), else of the session's folder.
-// git grep keeps it dependency-free and skips ignored files; outside a repo it searches three levels down.
-// Prints the project name, then the count.
-const DEBT = `${PATH}; command -v git >/dev/null || exit 1; P='(#|//|/[*]) ?ponytail:'
-cd "\${1:-.}" 2>/dev/null; cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" && basename "$PWD" &&
-{ if git rev-parse -q --git-dir >/dev/null 2>&1; then git grep --untracked -I -c -E "$P"
-  else git grep --no-index --exclude-standard --max-depth 3 -I -c -E "$P"; fi; } 2>/dev/null | awk -F: '{s+=$NF} END {print s+0}'`
-
-// Today's cost per model, from ccusage over the local logs: the installed one when setup.sh put it there, else npx.
-const MIX = `${PATH}; S=$(date +%Y%m%d)
-if command -v ccusage >/dev/null; then ccusage daily --json --breakdown --since $S; else npx -y ccusage@20.0.26 daily --json --breakdown --since $S; fi`
+// What the debt counts: a ponytail marker after a #, // or /* comment opener.
+const PATTERN = '(#|//|/[*]) ?ponytail:'
+const CCUSAGE = ['daily', '--json', '--breakdown', '--since']
 
 const LIVE = ['running', 'pending', 'waiting'] as const
 
@@ -39,11 +29,55 @@ const SHOWN = 4
 const LINGER = 30_000
 const STALE = 30 * 60_000
 
-// DEBT prints the project name, then the count; anything else is a failed run.
-export const parseDebt = (stdout = '') => {
-  const [name = '', count = ''] = stdout.trim().split('\n')
-  return name && /^\d+$/.test(count) ? { name, count } : undefined
+// The host's search path with the folders a GUI-launched app may lack: Homebrew's in front off Windows; on Windows,
+// after it, where npm's shims (ccusage, npx), Node and Git for Windows usually live.
+export const searchPath = (isWindows: boolean, path = '', homes: { APPDATA?: string; ProgramFiles?: string; LOCALAPPDATA?: string } = {}) =>
+  isWindows
+    ? [
+        path,
+        homes.APPDATA && `${homes.APPDATA}\\npm`,
+        homes.ProgramFiles && `${homes.ProgramFiles}\\nodejs`,
+        homes.ProgramFiles && `${homes.ProgramFiles}\\Git\\cmd`,
+        homes.LOCALAPPDATA && `${homes.LOCALAPPDATA}\\Programs\\Git\\cmd`,
+      ]
+        .filter(Boolean)
+        .join(';')
+    : ['/opt/homebrew/bin', '/usr/local/bin', path].filter(Boolean).join(':')
+
+// The folder of a file path, cut at its last separator, / or \; a bare name has none.
+export const dirOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/'), path.lastIndexOf('\\')))
+
+// A folder's last segment, whichever separator it uses (git on Windows prints C:/Users/x/proj).
+export const baseName = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? ''
+
+// Today as YYYYMMDD in local time, as `date +%Y%m%d` printed it.
+export const dayStamp = (ms: number) => {
+  const d = new Date(ms)
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
 }
+
+// git grep -c prints path:count per file; the count is after the last colon, as a Windows path holds one too.
+export const sumGrep = (stdout = '') => stdout.split(/\r?\n/).reduce((s, line) => s + Number(line.match(/:(\d+)\s*$/)?.[1] ?? 0), 0)
+
+// git grep exits 1 when nothing matches, a count of 0; any other failure is no count at all.
+export const debtOf = (exitCode: number, stdout = '') =>
+  exitCode === 0 ? String(sumGrep(stdout)) : exitCode === 1 && !stdout.trim() ? '0' : undefined
+
+// The debt count: tracked and untracked files of a repo (ignored ones skipped), else three levels down from the folder.
+export const grepArgv = (isRepo: boolean) =>
+  isRepo
+    ? ['git', 'grep', '--untracked', '-I', '-c', '-E', PATTERN]
+    : ['git', 'grep', '--no-index', '--exclude-standard', '--max-depth', '3', '-I', '-c', '-E', PATTERN]
+
+// Today's spend, each command tried in turn: the installed ccusage when setup.sh put it there, else npx. On Windows
+// both are .cmd shims, which only start through cmd.exe.
+export const mixArgvs = (isWindows: boolean, day: string) =>
+  isWindows
+    ? ['ccusage', 'npx -y ccusage@20.0.26'].map(cmd => ['cmd.exe', '/d', '/s', '/c', [cmd, ...CCUSAGE, day].join(' ')])
+    : [
+        ['ccusage', ...CCUSAGE, day],
+        ['npx', '-y', 'ccusage@20.0.26', ...CCUSAGE, day],
+      ]
 
 // ccusage's daily JSON → today's cost per model, biggest first; undefined when it isn't that JSON.
 export const parseMix = (stdout = ''): ModelCost[] | undefined => {
@@ -72,6 +106,42 @@ let debtAt = -Infinity
 let mixAt = -Infinity
 let isMixDue = false // a refresh skipped the spend inside its minute; the 2s timer catches it up
 
+// The platform and the PATH every command runs with, read once per load. No shell runs anything: Windows has no sh.
+let host: Promise<{ isWindows: boolean; env: { PATH: string } }> | undefined
+
+const hostOf = ($: EngineInterface) =>
+  (host ??= (async () => {
+    const get = (v: Promise<string | undefined>) => v.catch(() => undefined)
+    const cwd = await $.session.cwd().catch(() => '')
+    const isWindows = (await get($.env.get('OS'))) === 'Windows_NT' || /^[A-Za-z]:[\\/]/.test(cwd)
+    const homes = isWindows
+      ? { APPDATA: await get($.env.get('APPDATA')), ProgramFiles: await get($.env.get('ProgramFiles')), LOCALAPPDATA: await get($.env.get('LOCALAPPDATA')) }
+      : {}
+
+    return { isWindows, env: { PATH: searchPath(isWindows, await get($.env.get('PATH')), homes) } }
+  })())
+
+// A folder's git root, or undefined outside a repo or when git cannot start.
+async function topOf($: EngineInterface, dir: string) {
+  const { env } = await hostOf($)
+  const ran = await $.process.run(['git', '-C', dir, 'rev-parse', '--show-toplevel'], { env, timeoutMs: 5000 }).catch(() => undefined)
+  return ran?.exitCode === 0 ? ran.stdout.trim() || undefined : undefined
+}
+
+// The project and its debt: the root a tool's file put in `root` (a git root already), else the session folder's git
+// root, else that folder itself.
+async function countDebt($: EngineInterface) {
+  const { env } = await hostOf($)
+  const known = await read($, root)
+  const cwd = known || (await $.session.cwd())
+  const top = known || (await topOf($, cwd))
+  const at = top || cwd
+  const ran = await $.process.run(grepArgv(!!top), { cwd: at, env, timeoutMs: 15000 }).catch(() => undefined)
+  const count = ran && debtOf(ran.exitCode, ran.stdout)
+
+  return count === undefined ? undefined : { name: baseName(at), count }
+}
+
 // A failed count keeps the last good one instead of blanking the band.
 async function refresh($: EngineInterface) {
   const startedAt = await $.clock.now()
@@ -80,8 +150,7 @@ async function refresh($: EngineInterface) {
     isDirty = false // cleared first, so a write while the count runs asks for another
     debtAt = startedAt
 
-    const ran = await $.process.run(['sh', '-c', DEBT, 'sh', await read($, root)], { timeoutMs: 15000 }).catch(() => undefined)
-    const counted = parseDebt(ran?.stdout)
+    const counted = await countDebt($).catch(() => undefined)
 
     if (counted) {
       await update($, project, () => counted.name)
@@ -101,8 +170,16 @@ async function refresh($: EngineInterface) {
   mixAt = now
   isMixDue = false
 
-  const usage = await $.process.run(['sh', '-c', MIX], { timeoutMs: 90000 }).catch(() => undefined)
-  const costs = parseMix(usage?.stdout)
+  const { isWindows, env } = await hostOf($)
+  let costs: ModelCost[] | undefined
+
+  for (const argv of mixArgvs(isWindows, dayStamp(now))) {
+    const usage = await $.process.run(argv, { env, timeoutMs: 90000 }).catch(() => undefined)
+    costs = parseMix(usage?.stdout)
+
+    // Off Windows npx is only for a ccusage that cannot start; cmd.exe always starts, so there a failed run moves on.
+    if (costs || (usage && !isWindows)) break
+  }
 
   if (costs) {
     await update($, mix, () => costs)
@@ -285,17 +362,14 @@ export const register: Register = on => {
 
     // The project follows the files being worked on, so a chat opened above several repos counts the right one.
     const path = 'file_path' in e && typeof e.file_path === 'string' ? e.file_path : ''
-    const dir = path.slice(0, path.lastIndexOf('/'))
+    const dir = dirOf(path)
 
     if (dir) {
       void (async () => {
         let top = tops.get(dir)
 
         if (top === undefined) {
-          const ran = await $.process
-            .run(['sh', '-c', `${PATH}; git -C "$1" rev-parse --show-toplevel`, 'sh', dir], { timeoutMs: 5000 })
-            .catch(() => undefined)
-          top = ran?.exitCode === 0 ? ran.stdout.trim() : ''
+          top = (await topOf($, dir)) ?? ''
 
           // Only repos are remembered: a folder outside any repo is checked again next time. A folder already mapped
           // to a repo keeps that root for the session, even if it becomes a nested repo of its own later.
