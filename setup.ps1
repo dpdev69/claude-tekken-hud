@@ -94,7 +94,7 @@ if (Test-Cmd node) {
     $dir = Split-Path -Parent $cc.Source
     $npmDir = Join-Path $env:APPDATA 'npm'
     if ($dir.TrimEnd('\') -ine $npmDir.TrimEnd('\')) {
-      warn "ccusage is outside $npmDir : the desktop app may not find it (put $dir on the system PATH)"
+      warn "ccusage is outside ${npmDir}: the desktop app may not find it (put $dir on the system PATH)"
     }
   }
 }

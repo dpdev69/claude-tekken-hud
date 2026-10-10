@@ -54,7 +54,7 @@ On Windows, in PowerShell:
 irm https://raw.githubusercontent.com/dpdev69/claude-tekken-hud/main/setup.ps1 | iex
 ```
 
-Then in Claude Code (on Windows, enter the `/plugin ...` commands one at a time):
+Then in Claude Code, one command at a time:
 
 ```
 /plugin marketplace add dpdev69/claude-tekken-hud
