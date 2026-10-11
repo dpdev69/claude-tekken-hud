@@ -22,11 +22,11 @@ https://github.com/user-attachments/assets/66344f22-7c74-44cb-829c-7b959ea552c1
 
 **TODAY $** is today's spend broken down by model, via ccusage.
 
-**RUNNING** shows one nameplate per live agent, with its model and its duty.
+**RUNNING** shows one nameplate per live agent, with its model and its duty. They sit side by side, up to three a row, when each fits its column whole; past three agents they pair up regardless, the duties cut to fit, so a busy session keeps the band short. The terminal does the same with text columns.
 
 ![Agents](media/agents.gif)
 
-**WORKFLOW** shows each multi-agent workflow run as a gold plate: its name, how long it has run, how many agents it started, and a pip per agent in each phase (filled when done). Under it, a nameplate per agent still running, with its label, model and time; past four they fold into `+N more`. A finished run clears itself after 30 seconds.
+**WORKFLOW** shows each multi-agent workflow run as a gold plate: its name, how long it has run, how many agents it started, and a pip per agent in each phase (filled when done). Under it, a nameplate per agent still running, with its label, model and time, in the same columns; past four they fold into `+N more`. A finished run clears itself after 30 seconds.
 
 ![Workflow](media/workflow.png)
 
