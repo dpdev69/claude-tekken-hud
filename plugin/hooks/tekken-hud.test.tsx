@@ -1,6 +1,7 @@
 import { mock, test, expect } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
+import { panel } from './panel'
 import { baseName, dayStamp, debtOf, dirOf, grepArgv, mixArgvs, parseMix, searchPath, sumGrep } from './register'
 
 // The engine fills scroll and view; the band reads neither.
@@ -39,6 +40,23 @@ test('versus row, stamina with final round, and each agent with its duty', async
     }
     await ui.unmount()
   }
+})
+
+test('agent plates share rows: three short ones a row, long ones in pairs, one or two long ones alone', async () => {
+  const draw = (duties: string[]) =>
+    panel({
+      name: 'p1', ctx: 0, five: 0, resets: '', debt: '0', week: 0, costs: [],
+      agents: duties.map((duty, i) => ({ key: `a${i}`, model: 'claude-opus-5-5', duty, isRunning: true })),
+    })
+  // Each plate is a <g> at its column and row: count the distinct rows.
+  const rows = (svg: string) => new Set([...svg.matchAll(/translate\((\d+),(\d+)\)">\s*<polygon points="8,0 \d+,0 \d+,18 0,18" fill="#1b1b1b" stroke="#5a5a5a"/g)].map(m => m[2])).size
+  const long = 'W5-4 Opus: robustness + consolidation across the whole repo'
+
+  expect(rows(draw(['this chat', 'scan', 'lint', 'scan more']))).toBe(2)
+  expect(rows(draw(['this chat', 'W5-1 Opus: app onboarding', 'W5-2 Opus: CLI parity']))).toBe(2)
+  expect(rows(draw(['this chat', long]))).toBe(2)
+  expect(rows(draw(['this chat', long, long, long, long, long, long, long, long]))).toBe(5)
+  expect(draw(['this chat', long, long, long, long])).toContain('W5-4 Opus: robustness + consolidat…')
 })
 
 test('a spawn stores its resolved model under its agent id', async ($, on) => {

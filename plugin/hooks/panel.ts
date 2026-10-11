@@ -130,8 +130,18 @@ const GAP = 12
 // little off for the viewer's font scales the text a touch instead of spilling it past the plate's edge.
 const fit = (w: number) => ` textLength="${Math.max(10, w - 34 - 14)}" lengthAdjust="spacingAndGlyphs"`
 
-// A nameplate as wide as its model name and duty, never past the right edge.
-const plate = (a: Agent) => Math.min(850, Math.round(34 + short(a.model).length * 10.4 + GAP + cut(a.duty, 90).length * 7.4 + 24))
+// How much of an agent's duty fits a plate at most w wide, and the plate: as wide as its model name and duty, never past w.
+const room = (a: Agent, w: number) => Math.max(4, Math.min(90, Math.floor((w - 34 - short(a.model).length * 10.4 - GAP - 24) / 7.4)))
+const plate = (a: Agent, w = 850) => Math.min(w, Math.round(34 + short(a.model).length * 10.4 + GAP + cut(a.duty, room(a, w)).length * 7.4 + 24))
+
+// Nameplates sit side by side, up to three a row, when every one fits its column whole. Past three agents they
+// pair up regardless, the duties cut to the column, so a busy session doesn't stretch the band.
+const COL_GAP = 12
+const cell = (n: number) => (850 - COL_GAP * (n - 1)) / n
+const columns = (agents: Agent[]) => {
+  const fits = (n: number) => agents.length >= n && agents.every(a => plate(a) <= cell(n))
+  return fits(3) ? 3 : fits(2) || agents.length > 3 ? 2 : 1
+}
 
 // A slanted label tag for the left column; red when it calls a danger.
 const tag = (y: number, text: string, isDanger = false) =>
@@ -185,21 +195,25 @@ ${
 ${tag(84, `TODAY $${total.toFixed(2)}`)}
 <g transform="translate(150,85)">${frame('mx', segments, 850, 14, 8)}</g>`
 
-  // Fighter nameplates: a slanted plate with the model's color stripe; faded while the agent waits.
+  // Fighter nameplates: a slanted plate with the model's color stripe; faded while the agent waits. Laid out
+  // left to right, then down, in as many columns as fit.
+  const cols = columns(p.agents)
+  const cw = cell(cols)
   const agents = p.agents
     .map((a, i) => {
-      const y = below + i * 24
+      const [x, y] = [Math.round(150 + (i % cols) * (cw + COL_GAP)), below + Math.floor(i / cols) * 24]
+      const w = plate(a, cw)
       return `${i === 0 ? tag(y + 1, 'RUNNING') : ''}
-<g transform="translate(150,${y})">
-  <polygon points="8,0 ${plate(a)},0 ${plate(a) - 8},18 0,18" fill="#1b1b1b" stroke="#5a5a5a" stroke-width="1"/>
+<g transform="translate(${x},${y})">
+  <polygon points="8,0 ${w},0 ${w - 8},18 0,18" fill="#1b1b1b" stroke="#5a5a5a" stroke-width="1"/>
   <polygon points="8,0 26,0 18,18 0,18" fill="${tint(a.model)}"${a.isRunning ? '' : ' fill-opacity="0.35"'}/>
-  <text x="34" y="13.5" class="pv"${fit(plate(a))}>${esc(short(a.model).toUpperCase())}<tspan class="pd" dx="${GAP}">${esc(cut(a.duty, 90))}</tspan></text>
+  <text x="34" y="13.5" class="pv"${fit(w)}>${esc(short(a.model).toUpperCase())}<tspan class="pd" dx="${GAP}">${esc(cut(a.duty, room(a, cw)))}</tspan></text>
 </g>`
     })
     .join('')
 
   // Workflows: a gold header plate per run with phase pips, then a plate per running agent, +N past four.
-  let y = below + p.agents.length * 24
+  let y = below + Math.ceil(p.agents.length / cols) * 24
   const runs = (p.runs ?? [])
     .map(r => {
       // Each phase: its name (cut to 12) and a pip per agent; widths estimated as drawn.
