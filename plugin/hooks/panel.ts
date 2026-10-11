@@ -176,9 +176,10 @@ export const cut = (s: string, n: number) => {
 // The gap between a plate's name and its details: a dx offset, since SVG collapses runs of spaces.
 const GAP = 12
 
-// The text inside a plate of width w is told to span exactly the plate's inside, so a width estimate that is a
-// little off for the viewer's font scales the text a touch instead of spilling it past the plate's edge.
-const fit = (w: number) => ` textLength="${Math.max(10, w - 34 - 14)}" lengthAdjust="spacingAndGlyphs"`
+// A tight plate (its text cut to fit, or the plate at its widest) tells its text to span exactly the plate's inside,
+// so a width estimate a little short for the viewer's font squeezes the text a touch instead of spilling it past the
+// edge. A plate with room to spare leaves its text as drawn: the estimate runs long, and forcing it would stretch.
+const fit = (w: number, isTight: boolean) => (isTight ? ` textLength="${Math.max(10, w - 34 - 14)}" lengthAdjust="spacingAndGlyphs"` : '')
 
 // How much of an agent's duty fits a plate at most w wide, and the plate: as wide as its model name and duty, never past w.
 const room = (a: Agent, w: number) => Math.max(4, Math.min(90, Math.floor((w - 34 - span(short(a.model)) * 10.4 - GAP - 24) / 7.4)))
@@ -257,11 +258,13 @@ ${tag(84, `TODAY $${total.toFixed(2)}`)}
     .map((a, i) => {
       const [x, y] = [Math.round(150 + (i % cols) * (cw + COL_GAP)), below + Math.floor(i / cols) * 24]
       const w = plate(a, cw)
+      const duty = cut(a.duty, room(a, cw))
+      const isTight = duty !== a.duty || plate(a) > cw
       return `${i === 0 ? tag(y + 1, 'RUNNING') : ''}
 <g transform="translate(${x},${y})">
   <polygon points="8,0 ${w},0 ${w - 8},18 0,18" fill="#1b1b1b" stroke="#5a5a5a" stroke-width="1"/>
   <polygon points="8,0 26,0 18,18 0,18" fill="${tint(a.model)}"${a.isRunning ? '' : ' fill-opacity="0.35"'}/>
-  <text x="34" y="13.5" class="pv"${fit(w)}>${esc(short(a.model).toUpperCase())}<tspan class="pd" dx="${GAP}">${esc(cut(a.duty, room(a, cw)))}</tspan></text>
+  <text x="34" y="13.5" class="pv"${fit(w, isTight)}>${esc(short(a.model).toUpperCase())}<tspan class="pd" dx="${GAP}">${esc(duty)}</tspan></text>
 </g>`
     })
     .join('')
@@ -288,13 +291,16 @@ ${tag(84, `TODAY $${total.toFixed(2)}`)}
       const pipW = widthOf(phases)
       // The name line gets the room the pips leave, so the plate never has to squeeze it.
       const room = Math.max(16, Math.floor((850 - 58 - pipW) / 10.4))
-      const headText = cut(`${r.name.toUpperCase()} · ${elapsed(r.secs)} · ${r.count} AGENT${r.count === 1 ? '' : 'S'}`, room)
-      const headW = Math.min(850, Math.round(34 + span(headText) * 10.4 + pipW + 24))
+      const fullText = `${r.name.toUpperCase()} · ${elapsed(r.secs)} · ${r.count} AGENT${r.count === 1 ? '' : 'S'}`
+      const headText = cut(fullText, room)
+      const naturalW = Math.round(34 + span(headText) * 10.4 + pipW + 24)
+      const headW = Math.min(850, naturalW)
+      const isHeadTight = headText !== fullText || naturalW > 850 || widthOf(pipsOf(12, false)) > PIPS
       const head = `${tag(y + 1, 'WORKFLOW')}
 <g transform="translate(150,${y})">
   <polygon points="8,0 ${headW},0 ${headW - 8},18 0,18" fill="#1b1b1b" stroke="#f5c542" stroke-width="1"/>
   <polygon points="8,0 26,0 18,18 0,18" fill="#f5c542"/>
-  <text x="34" y="13.5" class="pv"${fit(headW)}>${esc(headText)}${pips}</text>
+  <text x="34" y="13.5" class="pv"${fit(headW, isHeadTight)}>${esc(headText)}${pips}</text>
 </g>`
       y += 24
       // A plate per agent: its label (cut to 40, or to what its column leaves) and its model and age.
@@ -302,8 +308,10 @@ ${tag(84, `TODAY $${total.toFixed(2)}`)}
         const meta = `${short(a.model).toUpperCase()} · ${elapsed(a.secs)}`
         const fixed = 34 + GAP + span(meta) * 7.4 + 24
         const plateOf = (max: number) => {
-          const text = cut(a.label.toUpperCase(), Math.max(4, Math.min(40, Math.floor((max - fixed) / 10.4))))
-          return { text, w: Math.min(max, Math.round(fixed + span(text) * 10.4)) }
+          const full = a.label.toUpperCase()
+          const text = cut(full, Math.max(4, Math.min(40, Math.floor((max - fixed) / 10.4))))
+          const natural = Math.round(fixed + span(text) * 10.4)
+          return { text, w: Math.min(max, natural), isTight: text !== full || natural > max }
         }
         return { a, meta, plateOf }
       })
@@ -313,12 +321,12 @@ ${tag(84, `TODAY $${total.toFixed(2)}`)}
       const wcw = step - COL_GAP - 20
       const rows = sized
         .map(({ a, meta, plateOf }, i) => {
-          const { text, w } = plateOf(wcw)
+          const { text, w, isTight } = plateOf(wcw)
           const x = Math.round(170 + (i % wcols) * step)
           return `<g transform="translate(${x},${y + Math.floor(i / wcols) * 24})">
   <polygon points="8,0 ${w},0 ${w - 8},18 0,18" fill="#1b1b1b" stroke="#5a5a5a" stroke-width="1"/>
   <polygon points="8,0 26,0 18,18 0,18" fill="${tint(a.model)}"/>
-  <text x="34" y="13.5" class="pv"${fit(w)}>${esc(text)}<tspan class="pd" dx="${GAP}">${esc(meta)}</tspan></text>
+  <text x="34" y="13.5" class="pv"${fit(w, isTight)}>${esc(text)}<tspan class="pd" dx="${GAP}">${esc(meta)}</tspan></text>
 </g>`
         })
         .join('')

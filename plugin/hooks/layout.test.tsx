@@ -162,10 +162,15 @@ function check(name: string, p: Panel) {
     }
   }
 
-  // The text is told to span its plate's inside, never less than 10.
+  // A tight plate's text is told to span its inside, never less than 10; a cut plate is always tight. A plate with
+  // room to spare leaves its text alone, so it is never stretched.
   for (const pl of g.plates) {
-    ok(pl.textLength !== undefined && pl.textLength >= 10, at(`textLength ${pl.textLength}`))
-    ok(Math.abs(pl.textLength! - Math.max(10, pl.w - 48)) < 1e-6, at(`textLength ${pl.textLength} for a ${pl.w} plate`))
+    if (pl.textLength !== undefined) {
+      ok(pl.textLength >= 10, at(`textLength ${pl.textLength}`))
+      ok(Math.abs(pl.textLength - Math.max(10, pl.w - 48)) < 1e-6, at(`textLength ${pl.textLength} for a ${pl.w} plate`))
+    }
+    const isCut = unesc(pl.main).endsWith('…') || unesc(pl.side).endsWith('…')
+    ok(!isCut || pl.textLength !== undefined, at(`cut plate "${pl.main}${pl.side}" without textLength`))
   }
 
   // Tags.
@@ -442,6 +447,20 @@ test('panel: short agents with one very long one drop to two columns past three 
   const one = check('one very long', base({ agents: agents([veryLong]) }))
   expect(unesc(one.plates[0]!.side)).toBe(`${'y'.repeat(89)}…`)
   expect(one.plates[0]!.w).toBe(819)
+})
+
+test('panel: only tight plates squeeze their text; roomy ones are left as drawn', () => {
+  const r = check('tight', base({ agents: agents(['x', 'scan', LONG, LONG, LONG]) }))
+  const [main, short, long] = r.plates
+  expect(main!.textLength).toBeUndefined()
+  expect(short!.textLength).toBeUndefined()
+  expect(unesc(long!.side).endsWith('…')).toBe(true)
+  expect(long!.textLength).toBe(long!.w - 48)
+  const wf = check('tight wf', base({ runs: [run(2, 'lint'), run(4, 'review:' + 'z'.repeat(60))] }))
+  const wfs = wf.plates.filter(p => p.kind === 'wf')
+  expect(wfs[0]!.textLength).toBeUndefined()
+  expect(wfs.at(-1)!.textLength).toBeDefined()
+  expect(wf.plates.filter(p => p.kind === 'head')[0]!.textLength).toBeUndefined()
 })
 
 test('panel: an empty duty still draws a plate', () => {

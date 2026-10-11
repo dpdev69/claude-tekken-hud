@@ -208,6 +208,85 @@ test('only a file-changing tool re-counts the debt; spend runs once a minute', a
   expect(ran).toEqual({ debt: 2, mix: 2, revParse: 1 })
 })
 
+test('a failed PATH read is not kept: the next command reads it again', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000_000 })
+  const state: Record<string, unknown> = {}
+  on('state.get', (_$, e: any) => ({ value: { value: state[e.key], version: 0 } }) as never)
+  on('state.set', (_$, e: any) => {
+    state[e.key] = e.value
+    return { value: { isSet: true, version: 1 } } as never
+  })
+  on('tool.call', () => ({ result: 'ok' }) as never)
+  on('turn.complete', () => ({ text: '' }) as never)
+  on('session.cwd', () => ({ value: '/repo' }) as never)
+  let reads = 0
+  on('env.get', (_$, e: any) => {
+    if (e.name !== 'PATH') return { value: undefined } as never
+    if (++reads === 1) return { deny: 'env unavailable' } as never
+    return { value: '/usr/bin' } as never
+  })
+  const paths: string[] = []
+  on('process.run', (_$, e: any) => {
+    paths.push(e.init?.env?.PATH)
+    const stdout = e.argv.includes('rev-parse') ? '/repo\n' : e.argv.includes('grep') ? 'a.ts:1\n' : '{"daily":[]}'
+    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false } } as never
+  })
+
+  await $.tool.call({ tool: 'Read', file_path: '/repo/a.ts' } as never)
+  await clock.settle()
+
+  // The first command ran without the PATH; every one after it has it.
+  expect(paths.length).toBeGreaterThan(1)
+  expect(paths[0]).not.toContain('/usr/bin')
+  for (const p of paths.slice(1)) expect(p).toContain('/usr/bin')
+
+  // Once read, it is kept: more commands read nothing again.
+  const settled = reads
+  await $.tool.call({ tool: 'Write', file_path: '/repo/x.ts', content: '' } as never)
+  await $.turn.complete({ answer: '', durationMs: 0, isAborted: false, turnId: 't' } as never)
+  await clock.advance(60_000)
+  await clock.settle()
+  expect(paths.length).toBeGreaterThan(3)
+  expect(reads).toBe(settled)
+})
+
+test('a read that always fails is tried three times, then left alone', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000_000 })
+  const { ran } = world(on)
+  let reads = 0
+  on('env.get', (_$, e: any) => {
+    if (e.name === 'PATH') reads++
+    return { deny: 'env unavailable' } as never
+  })
+
+  for (let i = 0; i < 4; i++) {
+    await $.tool.call({ tool: 'Write', file_path: `/repo/x${i}.ts`, content: '' } as never)
+    await $.turn.complete({ answer: '', durationMs: 0, isAborted: false, turnId: 't' } as never)
+    await clock.advance(60_000)
+    await clock.settle()
+  }
+
+  expect(ran.debt).toBeGreaterThan(3)
+  expect(reads).toBe(3)
+})
+
+test('the remembered models are capped, newest kept', async ($, on) => {
+  let written: Record<string, string> = Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`old-${i}`, 'claude-opus-5-5']))
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'new-1' }))
+  on('state.get', () => ({ value: { value: written, version: 0 } }) as never)
+  on('state.set', (_$, e: any) => {
+    written = e.value
+    return { value: { isSet: true, version: 1 } } as never
+  })
+
+  await $.agent.spawn({ prompt: 'p' } as never)
+
+  expect(Object.keys(written).length).toBe(200)
+  expect(written['new-1']).toBe('claude-haiku-5-5')
+  expect(written['old-0']).toBeUndefined()
+  expect(written['old-199']).toBe('claude-opus-5-5')
+})
+
 test('on Windows the spend runs through cmd.exe, falling back to npx, with npm shims on the PATH', async ($, on) => {
   const clock = mock.clock(on, { now: 1_000_000 })
   mock.env(on, { OS: 'Windows_NT', PATH: 'C:\\Windows', APPDATA: 'C:\\Users\\x\\AppData\\Roaming' })

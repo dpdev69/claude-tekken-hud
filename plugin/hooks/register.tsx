@@ -28,6 +28,9 @@ const T_GAP = 3
 
 // A run's plates hold the 4 running agents; the rest fold into "+N more".
 const SHOWN = 4
+// How many agents' models are remembered.
+const KEEP = 200
+
 // A finished run lingers this long; an agent that never reports back is dropped after the second.
 const LINGER = 30_000
 const STALE = 30 * 60_000
@@ -110,18 +113,32 @@ let mixAt = -Infinity
 let isMixDue = false // a refresh skipped the spend inside its minute; the 2s timer catches it up
 
 // The platform and the PATH every command runs with, read once per load. No shell runs anything: Windows has no sh.
+// A read that failed isn't kept: this call makes do with the defaults and the next one reads again, up to TRIES
+// loads in all, so a read that never works doesn't run again with every command.
 let host: Promise<{ isWindows: boolean; env: { PATH: string } }> | undefined
+let hostLoads = 0
+const TRIES = 3
 
 const hostOf = ($: EngineInterface) =>
   (host ??= (async () => {
-    const get = (v: Promise<string | undefined>) => v.catch(() => undefined)
-    const cwd = await $.session.cwd().catch(() => '')
+    let isPartial = false
+    const get = (v: Promise<string | undefined>) =>
+      v.catch(() => {
+        isPartial = true
+        return undefined
+      })
+    const cwd = (await get($.session.cwd())) ?? ''
     const isWindows = (await get($.env.get('OS'))) === 'Windows_NT' || /^[A-Za-z]:[\\/]/.test(cwd)
     const homes = isWindows
       ? { APPDATA: await get($.env.get('APPDATA')), ProgramFiles: await get($.env.get('ProgramFiles')), LOCALAPPDATA: await get($.env.get('LOCALAPPDATA')) }
       : {}
+    const found = { isWindows, env: { PATH: searchPath(isWindows, await get($.env.get('PATH')), homes) } }
 
-    return { isWindows, env: { PATH: searchPath(isWindows, await get($.env.get('PATH')), homes) } }
+    if (isPartial && ++hostLoads < TRIES) {
+      host = undefined
+    }
+
+    return found
   })())
 
 // A folder's git root, or undefined outside a repo or when git cannot start.
@@ -414,7 +431,8 @@ export const register: Register = on => {
     const { agentId, model } = spawned
 
     if (agentId !== undefined && model !== undefined) {
-      await update($, models, m => ({ ...m, [agentId]: model }))
+      // Kept to the newest KEEP, so a long session's list doesn't grow without end; live agents are far fewer.
+      await update($, models, m => Object.fromEntries([...Object.entries(m).filter(([id]) => id !== agentId), [agentId, model]].slice(-KEEP)))
 
       // A workflow's agent: tracked here, since $.agent.list() doesn't list workflow agents.
       if (e.workflow?.runId) {

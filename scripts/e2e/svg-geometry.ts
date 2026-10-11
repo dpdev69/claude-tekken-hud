@@ -166,6 +166,7 @@ const MEASURE = `(() => {
       c.remove()
     }
     plates.push({
+      isForced: !!forced,
       squeeze: Math.round(squeeze * 100) / 100,
       text: text.textContent,
       y: ty,
@@ -197,7 +198,7 @@ const MEASURE = `(() => {
   return { vw, vh, plates, tags, minX: r(minX), maxX: r(maxX), maxY: r(maxY), svgW: r(sr.width), font: getComputedStyle(svg.querySelector('text')).fontFamily }
 })()`
 
-type Plate = { squeeze: number; text: string; y: number; pl: number; pr: number; tl: number; tr: number }
+type Plate = { isForced: boolean; squeeze: number; text: string; y: number; pl: number; pr: number; tl: number; tr: number }
 type Measured = {
   vw: number
   vh: number
@@ -267,6 +268,9 @@ const browser = await chromium.launch({ executablePath: CHROME })
 const results: { name: string; cells: Record<string, string[]> }[] = []
 let font = ''
 let worstSq = { min: 9, max: 0, minAt: '', maxAt: '' }
+// The least room a plate left free of textLength has between its text's end and its own right edge, in viewBox units:
+// what a wider font than this page's has to spend before that text would spill.
+let slack = { min: Infinity, at: '' }
 
 for (const [name, state] of Object.entries(SCENARIOS)) {
   const cells: Record<string, string[]> = {}
@@ -287,6 +291,7 @@ for (const [name, state] of Object.entries(SCENARIOS)) {
       const xmlError = await page.evaluate(s => new DOMParser().parseFromString(s, 'image/svg+xml').querySelector('parsererror')?.textContent ?? '', svg)
       if (xmlError) bad.push(`xml: ${xmlError.slice(0, 120)}`)
       for (const p of m.plates) {
+        if (!p.isForced && p.pr - p.tr < slack.min) slack = { min: Math.round((p.pr - p.tr) * 10) / 10, at: `${name} ${JSON.stringify(Array.from(p.text).slice(0, 30).join(''))}` }
         if (p.squeeze < worstSq.min) worstSq = { ...worstSq, min: p.squeeze, minAt: `${name} ${JSON.stringify(Array.from(p.text).slice(0, 30).join(''))}` }
         if (p.squeeze > worstSq.max) worstSq = { ...worstSq, max: p.squeeze, maxAt: `${name} ${JSON.stringify(Array.from(p.text).slice(0, 30).join(''))}` }
       }
@@ -331,5 +336,6 @@ for (const r of results) {
 
 const total = results.length * keys.length
 console.log(`\nglyph distortion (natural/forced width; 1 = none): most stretched ${worstSq.min} (${worstSq.minAt}), most squeezed ${worstSq.max} (${worstSq.maxAt})`)
+console.log(`least room at the end of a plate left unforced: ${slack.min} units (${slack.at})`)
 console.log(`${total - fails}/${total} cells passed; PNGs in ${outDir}`)
 process.exit(fails ? 1 : 0)

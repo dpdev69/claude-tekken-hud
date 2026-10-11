@@ -10,8 +10,8 @@
 # show in the band, saves the capture to <outDir>/<cols>-<case>.txt and asserts:
 #   hud      the HUD lines (versus, "7d stamina", agent lines) appear above the prompt, in order
 #   columns  agent lines are laid out per the band's column rule (several markers on a line when it allows)
-#   width    no line is longer than <cols> characters (checked on the plain capture and on a -J joined one,
-#            where a soft-wrapped line would show up as one over-long line)
+#   width    no HUD line is longer than <cols> characters, on a -J joined capture, where a soft-wrapped line
+#            would show up as one over-long line
 # Prints PASS/FAIL per case and exits non-zero on any failure. Costs a handful of haiku turns per case.
 #
 # Env: CLAUDE_FLAGS (default "--permission-mode bypassPermissions --strict-mcp-config"), PLUGIN_DIR, TUI_ROWS
@@ -170,14 +170,17 @@ $tag FAIL hud-never-appeared"
       ;;
   esac
 
-  for f in "$OUT/$tag.txt" "$OUT/$tag.joined.txt"; do
-    over=$(node -e '
-      const cols = Number(process.argv[2])
-      const bad = require("fs").readFileSync(process.argv[1], "utf8").split("\n").map((l, i) => [i + 1, Array.from(l.replace(/\s+$/, "")).length]).filter(([, n]) => n > cols)
-      console.log(bad.map(([i, n]) => i + ":" + n).join(" "))
-    ' "$f" "$cols")
-    [ -z "$over" ] || problems="$problems; width: $(basename "$f") has lines over $cols chars (line:len) $over"
-  done
+  # Only the -J capture can show a soft wrap (a plain capture is never wider than the pane): a HUD line, from the
+  # versus row down to the prompt's border, that tmux joined past <cols> wrapped.
+  over=$(node -e '
+    const cols = Number(process.argv[2])
+    const lines = require("fs").readFileSync(process.argv[1], "utf8").split("\n")
+    const top = lines.findIndex(l => /5h [0-9.]+%/.test(l))
+    const end = lines.findIndex((l, i) => i > top && /^─{10,}/.test(l))
+    const bad = lines.slice(top, end < 0 ? undefined : end).map((l, i) => [top + i + 1, Array.from(l.replace(/\s+$/, "")).length]).filter(([, n]) => n > cols)
+    console.log(top < 0 ? "" : bad.map(([i, n]) => i + ":" + n).join(" "))
+  ' "$OUT/$tag.joined.txt" "$cols")
+  [ -z "$over" ] || problems="$problems; width: HUD lines soft-wrapped past $cols chars (line:len) $over"
 
   # --- quit cleanly ---
   tmux send-keys -t "$S" -l '/exit'
