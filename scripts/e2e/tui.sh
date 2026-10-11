@@ -6,7 +6,8 @@
 #
 # For each terminal width and each case it starts a fresh `claude --model haiku --plugin-dir <plugin>` in a temp
 # dir, answers the folder-trust and bypass dialogs, waits for the HUD, asks for N background haiku subagents (each just
-# sleeps 90s), polls until their lines show in the band, saves the capture to <outDir>/<cols>-<case>.txt and asserts:
+# waits 90s, with `timeout 90 tail -f /dev/null`: the Bash tool refuses a bare `sleep`), polls until their lines
+# show in the band, saves the capture to <outDir>/<cols>-<case>.txt and asserts:
 #   hud      the HUD lines (versus, "7d stamina", agent lines) appear above the prompt, in order
 #   columns  agent lines are laid out per the band's column rule (several markers on a line when it allows)
 #   width    no line is longer than <cols> characters (checked on the plain capture and on a -J joined one,
@@ -103,7 +104,7 @@ $tag FAIL hud-never-appeared"
   sleep 2
   cap >"$OUT/$tag.idle.txt"
 
-  prompt="Launch exactly $n background subagents in parallel, all in one message, using the Agent tool with run_in_background true and model haiku. Use these exact descriptions, one agent each: $descs. Each subagent's prompt: Run sleep 90 with the Bash tool in the foreground (not run_in_background), then reply done. Do nothing else yourself; after launching, reply launched."
+  prompt="Launch exactly $n background subagents in parallel, all in one message, using the Agent tool with run_in_background true and model haiku. Use these exact descriptions, one agent each: $descs. Each subagent's prompt: Run exactly this command with the Bash tool in the foreground (not run_in_background), timeout 120000: timeout 90 tail -f /dev/null; echo waited. Then reply done. Do nothing else yourself; after launching, reply launched."
   tmux send-keys -t "$S" -l "$prompt"
   sleep 1
   tmux send-keys -t "$S" Enter
