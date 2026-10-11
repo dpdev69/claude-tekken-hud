@@ -134,14 +134,18 @@ const fit = (w: number) => ` textLength="${Math.max(10, w - 34 - 14)}" lengthAdj
 const room = (a: Agent, w: number) => Math.max(4, Math.min(90, Math.floor((w - 34 - short(a.model).length * 10.4 - GAP - 24) / 7.4)))
 const plate = (a: Agent, w = 850) => Math.min(w, Math.round(34 + short(a.model).length * 10.4 + GAP + cut(a.duty, room(a, w)).length * 7.4 + 24))
 
-// Nameplates sit side by side, up to three a row, when every one fits its column whole. Past three agents they
-// pair up regardless, the duties cut to the column, so a busy session doesn't stretch the band.
-const COL_GAP = 12
-const cell = (n: number) => (850 - COL_GAP * (n - 1)) / n
-const columns = (agents: Agent[]) => {
-  const fits = (n: number) => agents.length >= n && agents.every(a => plate(a) <= cell(n))
-  return fits(3) ? 3 : fits(2) || agents.length > 3 ? 2 : 1
+// One of n columns across a row `width` wide, with `gap` between them.
+export const cell = (width: number, gap: number, n: number) => (width - gap * (n - 1)) / n
+
+// Items sit side by side, up to three a row, when every one fits its column whole. Past three items they pair up
+// regardless, cut to the column, so a busy session doesn't stretch the band; unless half a row is under `least`.
+// The band and the terminal share it: `widths` in grid units or characters, matching `width` and `gap`.
+export const columns = (widths: number[], width: number, gap: number, least = 0) => {
+  const fits = (n: number) => widths.length >= n && widths.every(w => w <= cell(width, gap, n))
+  return fits(3) ? 3 : fits(2) || (widths.length > 3 && cell(width, gap, 2) >= least) ? 2 : 1
 }
+
+const COL_GAP = 12
 
 // A slanted label tag for the left column; red when it calls a danger.
 const tag = (y: number, text: string, isDanger = false) =>
@@ -197,8 +201,8 @@ ${tag(84, `TODAY $${total.toFixed(2)}`)}
 
   // Fighter nameplates: a slanted plate with the model's color stripe; faded while the agent waits. Laid out
   // left to right, then down, in as many columns as fit.
-  const cols = columns(p.agents)
-  const cw = cell(cols)
+  const cols = columns(p.agents.map(a => plate(a)), 850, COL_GAP)
+  const cw = cell(850, COL_GAP, cols)
   const agents = p.agents
     .map((a, i) => {
       const [x, y] = [Math.round(150 + (i % cols) * (cw + COL_GAP)), below + Math.floor(i / cols) * 24]
@@ -212,7 +216,8 @@ ${tag(84, `TODAY $${total.toFixed(2)}`)}
     })
     .join('')
 
-  // Workflows: a gold header plate per run with phase pips, then a plate per running agent, +N past four.
+  // Workflows: a gold header plate per run with phase pips, then a plate per running agent, +N past four,
+  // in columns like the nameplates above.
   let y = below + Math.ceil(p.agents.length / cols) * 24
   const runs = (p.runs ?? [])
     .map(r => {
@@ -236,20 +241,30 @@ ${tag(84, `TODAY $${total.toFixed(2)}`)}
   <text x="34" y="13.5" class="pv"${fit(headW)}>${esc(headText)}${pips}</text>
 </g>`
       y += 24
-      const rows = r.agents
-        .map(a => {
-          const text = `${a.label.toUpperCase()}`
-          const meta = `${short(a.model).toUpperCase()} · ${elapsed(a.secs)}`
-          const w = Math.min(830, Math.round(34 + cut(text, 40).length * 10.4 + GAP + meta.length * 7.4 + 24))
-          const row = `<g transform="translate(170,${y})">
+      // A plate per agent: its label (cut to 40, or to what its column leaves) and its model and age.
+      const sized = r.agents.map(a => {
+        const meta = `${short(a.model).toUpperCase()} · ${elapsed(a.secs)}`
+        const fixed = 34 + GAP + meta.length * 7.4 + 24
+        const plateOf = (max: number) => {
+          const text = cut(a.label.toUpperCase(), Math.max(4, Math.min(40, Math.floor((max - fixed) / 10.4))))
+          return { text, w: Math.min(max, Math.round(fixed + text.length * 10.4)) }
+        }
+        return { a, meta, plateOf }
+      })
+      const wcols = columns(sized.map(s => s.plateOf(830).w), 830, COL_GAP)
+      const wcw = cell(830, COL_GAP, wcols)
+      const rows = sized
+        .map(({ a, meta, plateOf }, i) => {
+          const { text, w } = plateOf(wcw)
+          const x = Math.round(170 + (i % wcols) * (wcw + COL_GAP))
+          return `<g transform="translate(${x},${y + Math.floor(i / wcols) * 24})">
   <polygon points="8,0 ${w},0 ${w - 8},18 0,18" fill="#1b1b1b" stroke="#5a5a5a" stroke-width="1"/>
   <polygon points="8,0 26,0 18,18 0,18" fill="${tint(a.model)}"/>
-  <text x="34" y="13.5" class="pv"${fit(w)}>${esc(cut(text, 40))}<tspan class="pd" dx="${GAP}">${esc(meta)}</tspan></text>
+  <text x="34" y="13.5" class="pv"${fit(w)}>${esc(text)}<tspan class="pd" dx="${GAP}">${esc(meta)}</tspan></text>
 </g>`
-          y += 24
-          return row
         })
         .join('')
+      y += Math.ceil(sized.length / wcols) * 24
       const more = r.more > 0 ? `<text x="204" y="${y + 13.5}" class="l">+${r.more} more</text>` : ''
       y += r.more > 0 ? 24 : 0
       return head + rows + more
