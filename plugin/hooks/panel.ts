@@ -121,10 +121,34 @@ text{font-family:system-ui,-apple-system,sans-serif;font-style:italic;font-weigh
 @media (prefers-color-scheme:light){.l,.d{fill:#5f5f5f}.v{fill:#2b2b2b}}
 </style>`
 
-// Cut by code points, so an emoji or other astral character is never split into a lone surrogate.
-const cut = (s: string, n: number) => {
-  const chars = Array.from(s)
-  return chars.length > n ? `${chars.slice(0, n - 1).join('')}…` : s
+// Text is measured and cut by grapheme, so an emoji sequence or an accented letter is never split; Intl.Segmenter
+// where the runtime has it, else by code point. East Asian wide characters and emoji take two narrow ones' room,
+// as in a terminal, so CJK isn't squeezed into a plate sized for Latin and an emoji sequence isn't stretched.
+const SEG = typeof Intl !== 'undefined' && 'Segmenter' in Intl ? new Intl.Segmenter() : undefined
+const WIDE = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]|\p{Extended_Pictographic}/u
+const graphemes = (s: string) => (SEG ? Array.from(SEG.segment(s), g => g.segment) : Array.from(s))
+const room1 = (g: string) => (WIDE.test(g) ? 2 : 1)
+
+// How much room text takes, in narrow characters.
+export const span = (s: string) => graphemes(s).reduce((n, g) => n + room1(g), 0)
+
+// Text cut to n narrow characters' room, its last one an ellipsis when anything was dropped.
+export const cut = (s: string, n: number) => {
+  if (span(s) <= n) {
+    return s
+  }
+
+  let out = ''
+  let used = 0
+  for (const g of graphemes(s)) {
+    if (used + room1(g) > n - 1) {
+      break
+    }
+    out += g
+    used += room1(g)
+  }
+
+  return `${out}…`
 }
 
 // The gap between a plate's name and its details: a dx offset, since SVG collapses runs of spaces.
@@ -135,8 +159,8 @@ const GAP = 12
 const fit = (w: number) => ` textLength="${Math.max(10, w - 34 - 14)}" lengthAdjust="spacingAndGlyphs"`
 
 // How much of an agent's duty fits a plate at most w wide, and the plate: as wide as its model name and duty, never past w.
-const room = (a: Agent, w: number) => Math.max(4, Math.min(90, Math.floor((w - 34 - short(a.model).length * 10.4 - GAP - 24) / 7.4)))
-const plate = (a: Agent, w = 850) => Math.min(w, Math.round(34 + short(a.model).length * 10.4 + GAP + cut(a.duty, room(a, w)).length * 7.4 + 24))
+const room = (a: Agent, w: number) => Math.max(4, Math.min(90, Math.floor((w - 34 - span(short(a.model)) * 10.4 - GAP - 24) / 7.4)))
+const plate = (a: Agent, w = 850) => Math.min(w, Math.round(34 + span(short(a.model)) * 10.4 + GAP + span(cut(a.duty, room(a, w))) * 7.4 + 24))
 
 // One of n columns across a row `width` wide, with `gap` between them.
 export const cell = (width: number, gap: number, n: number) => (width - gap * (n - 1)) / n
@@ -233,11 +257,11 @@ ${tag(84, `TODAY $${total.toFixed(2)}`)}
       const pips = phases
         .map(ph => `<tspan class="pl" dx="${GAP}">${esc(ph.name)}</tspan><tspan fill="#f5c542" style="fill:#f5c542" dx="5">${ph.dots}</tspan>`)
         .join('')
-      const pipW = phases.reduce((n, ph) => n + GAP + ph.name.length * 9.4 + 5 + ph.dots.length * 12, 0)
+      const pipW = phases.reduce((n, ph) => n + GAP + span(ph.name) * 9.4 + 5 + ph.dots.length * 12, 0)
       // The name line gets the room the pips leave, so the plate never has to squeeze it.
       const room = Math.max(16, Math.floor((850 - 58 - pipW) / 10.4))
       const headText = cut(`${r.name.toUpperCase()} · ${elapsed(r.secs)} · ${r.count} AGENT${r.count === 1 ? '' : 'S'}`, room)
-      const headW = Math.min(850, Math.round(34 + headText.length * 10.4 + pipW + 24))
+      const headW = Math.min(850, Math.round(34 + span(headText) * 10.4 + pipW + 24))
       const head = `${tag(y + 1, 'WORKFLOW')}
 <g transform="translate(150,${y})">
   <polygon points="8,0 ${headW},0 ${headW - 8},18 0,18" fill="#1b1b1b" stroke="#f5c542" stroke-width="1"/>
@@ -248,10 +272,10 @@ ${tag(84, `TODAY $${total.toFixed(2)}`)}
       // A plate per agent: its label (cut to 40, or to what its column leaves) and its model and age.
       const sized = r.agents.map(a => {
         const meta = `${short(a.model).toUpperCase()} · ${elapsed(a.secs)}`
-        const fixed = 34 + GAP + meta.length * 7.4 + 24
+        const fixed = 34 + GAP + span(meta) * 7.4 + 24
         const plateOf = (max: number) => {
           const text = cut(a.label.toUpperCase(), Math.max(4, Math.min(40, Math.floor((max - fixed) / 10.4))))
-          return { text, w: Math.min(max, Math.round(fixed + text.length * 10.4)) }
+          return { text, w: Math.min(max, Math.round(fixed + span(text) * 10.4)) }
         }
         return { a, meta, plateOf }
       })

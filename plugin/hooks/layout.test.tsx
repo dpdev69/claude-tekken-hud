@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing'
 
-import { cell, columns, panel } from './panel'
+import { cell, columns, cut, panel, span } from './panel'
 import type { Agent, Panel, Run } from './panel'
 
 // Pure tests of the band's column layout: `cell`, `columns` and the SVG `panel` draws from them. No engine needed;
@@ -195,7 +195,7 @@ function check(name: string, p: Panel) {
       const label = unesc(pl.main)
       const up = a.label.toUpperCase()
       ok(label === up || (label.endsWith('…') && up.startsWith(label.slice(0, -1)) && label.length < up.length), at(`label "${label}" is not "${up}" or a cut of it`))
-      ok(Array.from(label).length <= 40, at(`label longer than 40: ${Array.from(label).length}`))
+      ok(span(label) <= 40, at(`label longer than 40: ${span(label)}`))
       ok(unesc(pl.side).startsWith(a.model.replace(/^claude-/, '').toUpperCase()), at(`wf meta "${pl.side}"`))
     }),
   )
@@ -455,6 +455,30 @@ test('panel: unicode and emoji duties are drawn as they are', () => {
   // Wide characters are not counted double (the plate is an estimate and textLength squeezes the text), but nothing leaves the grid.
   const wide = check('wide', base({ agents: agents(['日本語'.repeat(20)]) }))
   le(wide.plates[0]!.x + wide.plates[0]!.w, 1000)
+})
+
+test('span counts wide characters and emoji as two, a whole emoji sequence as one grapheme', () => {
+  expect(span('')).toBe(0)
+  expect(span('scan')).toBe(4)
+  expect(span('日本語')).toBe(6)
+  expect(span('한국')).toBe(4)
+  expect(span('🚀')).toBe(2)
+  expect(span('👩‍👩‍👧‍👦')).toBe(2)
+  expect(span('café')).toBe(4)
+  expect(span('e\u0301')).toBe(1)
+})
+
+test('cut keeps text within n narrow characters, never splitting a grapheme', () => {
+  expect(cut('scan', 4)).toBe('scan')
+  expect(cut('scanner', 5)).toBe('scan…')
+  expect(cut('日本語のタスク', 7)).toBe('日本語…')
+  expect(cut('👩‍👩‍👧‍👦👩‍👩‍👧‍👦👩‍👩‍👧‍👦', 4)).toBe('👩‍👩‍👧‍👦…')
+  expect(cut('👩‍👩‍👧‍👦👩‍👩‍👧‍👦👩‍👩‍👧‍👦', 5)).toBe('👩‍👩‍👧‍👦👩‍👩‍👧‍👦…')
+  expect(cut('cafe\u0301s', 5)).toBe('cafe\u0301s')
+  expect(cut('cafe\u0301s and more', 5)).toBe('cafe\u0301…')
+  for (const s of ['日本語のタスクを実行する', '🧑‍💻 pair 👩‍👩‍👧‍👦 family', 'x'.repeat(50)]) {
+    for (let n = 2; n < 30; n++) expect(span(cut(s, n))).toBeLessThanOrEqual(n)
+  }
 })
 
 test('panel: a cut never splits an emoji into a lone surrogate', () => {

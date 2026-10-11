@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { AgentModels, ModelCost, WfAgents, WfRuns } from '../types'
 
-import { cell, clamp, columns, countdown, elapsed, heat, panel, short, textBar, tint } from './panel'
+import { cell, clamp, columns, countdown, cut, elapsed, heat, panel, short, span, textBar, tint } from './panel'
 import type { Agent, Run } from './panel'
 
 const models = atom({ plugin: 'tekken-hud', key: 'models' } as const, {} as AgentModels)
@@ -469,9 +469,10 @@ export const register: Register = on => {
     }
 
     // The terminal has no Svg: the same rows as text, the agents in columns as on the band, each column a fixed
-    // width so they line up; a cell under 30 characters is too cramped to pair.
+    // width so they line up; a cell under 30 characters is too cramped to pair. In a cell the model name stays
+    // whole (unless it alone would overflow) and the duty takes the cut.
     const width = Math.max(20, e.props.bodyColumns || 80)
-    const cols = columns(agents.map(a => 3 + short(a.model).length + a.duty.length), width, T_GAP, 30)
+    const cols = columns(agents.map(a => 3 + span(short(a.model)) + span(a.duty)), width, T_GAP, 30)
     const cw = Math.floor(cell(width, T_GAP, cols))
     const wfWidth = width - 2
     return (
@@ -507,9 +508,9 @@ export const register: Register = on => {
           {agents.map(a => (
             <Box key={`run-${a.key}`} gap={1} width={cw}>
               <Text color={tint(a.model)}>{a.isRunning ? '●' : '○'}</Text>
-              <Text bold wrap="truncate-end">
-                {short(a.model)}
-              </Text>
+              <Box flexShrink={0}>
+                <Text bold>{cut(short(a.model), Math.max(4, cw - 8))}</Text>
+              </Box>
               <Text dimColor wrap="truncate-end">
                 {a.duty}
               </Text>
@@ -529,7 +530,7 @@ export const register: Register = on => {
             <Box flexWrap="wrap" columnGap={T_GAP} paddingLeft={2}>
               {(() => {
                 const meta = (a: Run['agents'][number]) => `${short(a.model)} · ${elapsed(a.secs)}`
-                const wcols = columns(r.agents.map(a => 3 + a.label.length + meta(a).length), wfWidth, T_GAP, 30)
+                const wcols = columns(r.agents.map(a => 3 + span(a.label) + span(meta(a))), wfWidth, T_GAP, 30)
                 const wcw = Math.floor(cell(wfWidth, T_GAP, wcols))
                 return r.agents.map(a => (
                   <Box key={`wfa-${a.key}`} gap={1} width={wcw}>
@@ -537,9 +538,9 @@ export const register: Register = on => {
                     <Text bold wrap="truncate-end">
                       {a.label}
                     </Text>
-                    <Text dimColor wrap="truncate-end">
-                      {meta(a)}
-                    </Text>
+                    <Box flexShrink={0}>
+                      <Text dimColor>{cut(meta(a), Math.max(4, wcw - 8))}</Text>
+                    </Box>
                   </Box>
                 ))
               })()}
