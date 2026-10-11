@@ -625,18 +625,23 @@ test('panel: the workflow head starts at the row after the last agent row, whate
 })
 
 test('panel: four short workflow agents are 3 + 1, four long ones 2 x 2, two long ones stack', () => {
-  const short = check('wf 4 short', base({ agents: agents(['m']), runs: [run(4, 'review:a')] }))
+  // Workflow plates sit on the nameplates' columns (150 + i * step), indented 20.
+  const short = check('wf 4 short', base({ agents: agents(['m']), runs: [run(4, 'lint')] }))
   const wf = short.plates.filter(p => p.kind === 'wf')
   expect(shape(wf)).toEqual([3, 1])
-  expect(wf.slice(0, 3).map(p => p.x)).toEqual([170, 451, 731])
+  expect(wf.slice(0, 3).map(p => p.x)).toEqual([170, 457, 745])
   expect(wf[3]!.x).toBe(170)
+  // Lined up under three short nameplates, each 20 in.
+  const aligned = check('wf under nameplates', base({ agents: agents(['m', 'scan', 'lint']), runs: [run(3, 'lint')] }))
+  const ag = aligned.plates.filter(p => p.kind !== 'wf' && p.y === aligned.plates[0]!.y).map(p => p.x)
+  expect(aligned.plates.filter(p => p.kind === 'wf').map(p => p.x - 20)).toEqual(ag)
 
   const long = check('wf 4 long', base({ agents: agents(['m']), runs: [run(4, 'review:runtime-and-repo-wide-consolidation-pass')] }))
   const lw = long.plates.filter(p => p.kind === 'wf')
   expect(shape(lw)).toEqual([2, 2])
-  expect(lw.slice(0, 2).map(p => p.x)).toEqual([170, 591])
-  expect(lw[0]!.w).toBe(399)
-  expect(unesc(lw[0]!.main)).toBe('REVIEW:RUNTIME-AND-R…')
+  expect(lw.slice(0, 2).map(p => p.x)).toEqual([170, 601])
+  expect(lw[0]!.w).toBe(389)
+  expect(unesc(lw[0]!.main)).toBe('REVIEW:RUNTIME-AND-…')
 
   const two = check('wf 2 long', base({ agents: agents(['m']), runs: [run(2, 'review:runtime-and-repo-wide-consolidation-pass-long')] }))
   expect(shape(two.plates.filter(p => p.kind === 'wf'))).toEqual([1, 1])
@@ -657,8 +662,8 @@ test('panel: a workflow label is cut with an ellipsis at 40 characters, or at wh
   const paired = check('wf long labels in pairs', base({ runs: [run(4, label)] }))
   const pm = unesc(paired.plates[1]!.main)
   expect(pm.endsWith('…')).toBe(true)
-  expect(pm.length).toBe(21)
-  expect(paired.plates[1]!.w).toBe(399)
+  expect(pm.length).toBe(20)
+  expect(paired.plates[1]!.w).toBe(389)
 })
 
 test('panel: "+N more" sits under the last workflow row and counts into the height', () => {

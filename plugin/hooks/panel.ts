@@ -245,7 +245,7 @@ ${tag(84, `TODAY $${total.toFixed(2)}`)}
     .join('')
 
   // Workflows: a gold header plate per run with phase pips, then a plate per running agent, +N past four,
-  // in columns like the nameplates above.
+  // in the nameplates' columns.
   let y = below + Math.ceil(p.agents.length / cols) * 24
   const runs = (p.runs ?? [])
     .map(r => {
@@ -279,12 +279,14 @@ ${tag(84, `TODAY $${total.toFixed(2)}`)}
         }
         return { a, meta, plateOf }
       })
-      const wcols = columns(sized.map(s => s.plateOf(830).w), 830, COL_GAP)
-      const wcw = cell(830, COL_GAP, wcols)
+      // On the nameplates' columns, each plate indented 20 into its column so the two grids line up.
+      const wcols = columns(sized.map(s => s.plateOf(830).w + 20), 850, COL_GAP)
+      const step = cell(850, COL_GAP, wcols) + COL_GAP
+      const wcw = step - COL_GAP - 20
       const rows = sized
         .map(({ a, meta, plateOf }, i) => {
           const { text, w } = plateOf(wcw)
-          const x = Math.round(170 + (i % wcols) * (wcw + COL_GAP))
+          const x = Math.round(170 + (i % wcols) * step)
           return `<g transform="translate(${x},${y + Math.floor(i / wcols) * 24})">
   <polygon points="8,0 ${w},0 ${w - 8},18 0,18" fill="#1b1b1b" stroke="#5a5a5a" stroke-width="1"/>
   <polygon points="8,0 26,0 18,18 0,18" fill="${tint(a.model)}"/>
