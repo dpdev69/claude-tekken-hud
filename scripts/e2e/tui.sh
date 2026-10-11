@@ -5,7 +5,7 @@
 #   CASES="short" sh scripts/e2e/tui.sh out 100       run only some cases (short | long; default both)
 #
 # For each terminal width and each case it starts a fresh `claude --model haiku --plugin-dir <plugin>` in a temp
-# dir, answers the folder-trust dialog, waits for the HUD, asks for N background haiku subagents (each just
+# dir, answers the folder-trust and bypass dialogs, waits for the HUD, asks for N background haiku subagents (each just
 # sleeps 90s), polls until their lines show in the band, saves the capture to <outDir>/<cols>-<case>.txt and asserts:
 #   hud      the HUD lines (versus, "7d stamina", agent lines) appear above the prompt, in order
 #   columns  agent lines are laid out per the band's column rule (several markers on a line when it allows)
@@ -13,7 +13,8 @@
 #            where a soft-wrapped line would show up as one over-long line)
 # Prints PASS/FAIL per case and exits non-zero on any failure. Costs a handful of haiku turns per case.
 #
-# Env: CLAUDE_FLAGS (default: allow only the Agent tool and `sleep 90`), PLUGIN_DIR, TUI_ROWS (default 50).
+# Env: CLAUDE_FLAGS (default "--permission-mode bypassPermissions"; each session runs in a throwaway temp dir),
+# PLUGIN_DIR, TUI_ROWS (default 50).
 set -u
 
 OUT=${1:?usage: sh scripts/e2e/tui.sh <outDir> [cols...]}
@@ -22,7 +23,7 @@ COLS=${*:-"60 100 160"}
 CASES=${CASES:-"short long"}
 HERE=$(cd "$(dirname "$0")" && pwd)
 PLUGIN_DIR=${PLUGIN_DIR:-$(cd "$HERE/../../plugin" && pwd)}
-DEFAULT_FLAGS="--allowedTools Agent 'Bash(sleep 90)'"
+DEFAULT_FLAGS="--permission-mode bypassPermissions"
 CLAUDE_FLAGS=${CLAUDE_FLAGS:-$DEFAULT_FLAGS}
 ROWS=${TUI_ROWS:-50}
 S="hud$$"
@@ -40,11 +41,11 @@ trap cleanup EXIT INT TERM
 
 cap() { tmux capture-pane -p -t "$S" 2>/dev/null; }
 
-# Answer the folder-trust prompt (No, exit is preselected). Only the agents and `sleep 90` are pre-allowed;
-# any other permission prompt is left unanswered, so the case times out rather than approving something unplanned.
+# Answer the folder-trust prompt (No, exit is preselected) and, in bypass mode, its one-time warning. Any other
+# prompt is left unanswered, so a case times out rather than approving something unplanned.
 dialogs() {
   scr=$(cap)
-  if printf '%s' "$scr" | grep -q 'Yes, I trust this folder'; then
+  if printf '%s' "$scr" | grep -q 'Yes, I trust this folder\|Yes, I accept'; then
     tmux send-keys -t "$S" Down
     sleep 1
     tmux send-keys -t "$S" Enter
