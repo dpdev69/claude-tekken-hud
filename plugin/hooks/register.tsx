@@ -225,6 +225,15 @@ const phaseOf = (label: string, phases: string[]) => {
   return phases.find(p => head.startsWith(p.toLowerCase()) || p.toLowerCase().startsWith(head)) ?? (phases.length === 1 ? phases[0] ?? head : head)
 }
 
+// Text from agents, shown as one line: ANSI escape sequences dropped, other control characters (newlines, tabs,
+// carriage returns) turned to spaces, so a description can't break a row, move the cursor or blank the band.
+export const clean = (s: string) =>
+  s
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)?|\u001b[@-_]?/g, '')
+    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ')
+    .replace(/ {2,}/g, ' ')
+    .trim()
+
 // The runs the band shows, from the recorded agents; also says which runs and agents are past keeping.
 function shape(allRuns: WfRuns, agents: WfAgents, now: number) {
   const out: Run[] = []
@@ -254,14 +263,14 @@ function shape(allRuns: WfRuns, agents: WfAgents, now: number) {
 
     out.push({
       key: runId,
-      name: run.name,
+      name: clean(run.name),
       secs: ((live.length ? now : lastEnd) - Math.min(run.startedAt, ...mine.map(([, a]) => a.startedAt))) / 1000,
       count: mine.length,
       phases: titles.map(t => {
         const inPhase = mine.filter(([, a]) => phaseOf(a.label, run.phases).toLowerCase() === t.toLowerCase())
-        return { name: t, done: inPhase.filter(([, a]) => a.endedAt).length, total: inPhase.length }
+        return { name: clean(t), done: inPhase.filter(([, a]) => a.endedAt).length, total: inPhase.length }
       }),
-      agents: live.slice(0, SHOWN).map(([id, a]) => ({ key: id, label: a.label, model: a.model, secs: (now - a.startedAt) / 1000 })),
+      agents: live.slice(0, SHOWN).map(([id, a]) => ({ key: id, label: clean(a.label), model: a.model, secs: (now - a.startedAt) / 1000 })),
       more: Math.max(0, live.length - SHOWN),
     })
   }
@@ -449,7 +458,7 @@ export const register: Register = on => {
       ...live.map(a => ({
         key: a.id,
         model: seen[a.id] ?? 'model ?',
-        duty: a.description || a.name || a.type,
+        duty: clean(a.description || '') || clean(a.name || '') || a.type,
         isRunning: a.status === 'running',
       })),
     ]

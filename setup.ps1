@@ -99,7 +99,8 @@ if (Test-Cmd node) {
   }
 }
 
-if ($script:Missing) { say "Fix the $CROSS items above"; exit 1 }
+# return, not exit: under irm | iex, exit would close the user's PowerShell window.
+if ($script:Missing) { say "Fix the $CROSS items above"; $global:LASTEXITCODE = 1; return }
 
 say 'Ready. In Claude Code:'
 Write-Host '  /plugin marketplace add dpdev69/claude-tekken-hud'

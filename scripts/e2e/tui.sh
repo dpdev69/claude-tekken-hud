@@ -14,8 +14,9 @@
 #            where a soft-wrapped line would show up as one over-long line)
 # Prints PASS/FAIL per case and exits non-zero on any failure. Costs a handful of haiku turns per case.
 #
-# Env: CLAUDE_FLAGS (default "--permission-mode bypassPermissions"; each session runs in a throwaway temp dir),
-# PLUGIN_DIR, TUI_ROWS (default 50).
+# Env: CLAUDE_FLAGS (default "--permission-mode bypassPermissions --strict-mcp-config"), PLUGIN_DIR, TUI_ROWS
+# (default 50). Each session starts in an empty temp dir and loads no MCP servers, but it still runs as you, with
+# your ~/.claude settings and hooks: bypass mode means the nested model's tool calls are not confirmed.
 set -u
 
 OUT=${1:?usage: sh scripts/e2e/tui.sh <outDir> [cols...]}
@@ -24,7 +25,7 @@ COLS=${*:-"60 100 160"}
 CASES=${CASES:-"short long"}
 HERE=$(cd "$(dirname "$0")" && pwd)
 PLUGIN_DIR=${PLUGIN_DIR:-$(cd "$HERE/../../plugin" && pwd)}
-DEFAULT_FLAGS="--permission-mode bypassPermissions"
+DEFAULT_FLAGS="--permission-mode bypassPermissions --strict-mcp-config"
 CLAUDE_FLAGS=${CLAUDE_FLAGS:-$DEFAULT_FLAGS}
 ROWS=${TUI_ROWS:-50}
 S="hud$$"
@@ -89,7 +90,7 @@ run_case() {
   cd "$dir" || return 1
   tmux kill-session -t "$S" 2>/dev/null
   tmux new-session -d -s "$S" -x "$cols" -y "$ROWS" -c "$dir"
-  tmux send-keys -t "$S" "claude --model haiku $CLAUDE_FLAGS --plugin-dir $PLUGIN_DIR" Enter
+  tmux send-keys -t "$S" "claude --model haiku $CLAUDE_FLAGS --plugin-dir '$PLUGIN_DIR'" Enter
 
   problems=""
   if ! wait_for 40 '7d stamina'; then

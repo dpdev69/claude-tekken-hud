@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "claude plugin test plugin",
+    "e2e:svg": "tsx scripts/e2e/svg-geometry.ts .frames/e2e-svg",
+    "e2e:tui": "sh scripts/e2e/tui.sh .frames/e2e-tui",
     "gifs": "tsx scripts/gifs.ts",
     "video": "tsx scripts/video.ts"
   },

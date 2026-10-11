@@ -2,7 +2,7 @@ import { mock, test, expect } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { panel } from './panel'
-import { baseName, dayStamp, debtOf, dirOf, grepArgv, mixArgvs, parseMix, searchPath, sumGrep } from './register'
+import { baseName, clean, dayStamp, debtOf, dirOf, grepArgv, mixArgvs, parseMix, searchPath, sumGrep } from './register'
 
 // The engine fills scroll and view; the band reads neither.
 const PROPS = { hasSurvey: false, isWorking: false, maxRows: 8, bodyColumns: 100 } as never
@@ -57,6 +57,28 @@ test('agent plates share rows: three short ones a row, long ones in pairs, one o
   expect(rows(draw(['this chat', long]))).toBe(2)
   expect(rows(draw(['this chat', long, long, long, long, long, long, long, long]))).toBe(5)
   expect(draw(['this chat', long, long, long, long])).toContain('W5-4 Opus: robustness + consolidat…')
+})
+
+test('agent text is cleaned to one line: no escape sequences, controls as spaces', () => {
+  expect(clean('scan\nsecond line')).toBe('scan second line')
+  expect(clean('scan\tlint\r\n')).toBe('scan lint')
+  expect(clean('\u001b[31mred\u001b[0m text')).toBe('red text')
+  expect(clean('title\u001b]0;pwned\u0007 here')).toBe('title here')
+  expect(clean('a\u0000b\u0007c\u009bd')).toBe('a b c d')
+  expect(clean('  plain  ')).toBe('plain')
+  expect(clean('日本語 🚀')).toBe('日本語 🚀')
+})
+
+test('a description with a newline stays one terminal row', async ($, on) => {
+  on('agent.list', () => ({ value: [{ id: 'a1', type: 'Explore', status: 'running', description: 'scan\nsecond line\u001b[2J' }] }) as never)
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.usage', () => ({ value: USAGE }) as never)
+  on('clock.now', () => ({ value: Date.parse('2026-10-07T20:00:00Z') }) as never)
+  const ui = await $.ui.mount({ plugin: 'tekken-hud', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
+  const text = String((await ui.find({ key: 'run-a1' }))?.text)
+  expect(text).toContain('scan second line')
+  expect(/[\n\u001b]/.test(text)).toBe(false)
+  await ui.unmount()
 })
 
 test('a spawn stores its resolved model under its agent id', async ($, on) => {

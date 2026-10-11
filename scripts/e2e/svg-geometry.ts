@@ -12,7 +12,7 @@
 //   squeeze textLength (which forces text onto its plate) bends glyphs by at most 1.2x squeezed or 1/0.6 stretched
 //   tag     tag labels stay inside their tag polygons
 // A PNG per scenario/width/scheme goes to <outDir>; a PASS/FAIL table is printed; exit 1 on any failure.
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { chromium } from 'playwright-core'
@@ -20,7 +20,9 @@ import { chromium } from 'playwright-core'
 import { panel } from '../../plugin/hooks/panel.ts'
 import type { Agent, Panel, Run } from '../../plugin/hooks/panel.ts'
 
-const CHROME = process.env.CHROME ?? '/opt/pw-browsers/chromium'
+// The system Chrome on a Mac, as scripts/render.ts uses; else the Chromium that Playwright containers ship.
+const MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+const CHROME = process.env.CHROME ?? (existsSync(MAC_CHROME) ? MAC_CHROME : '/opt/pw-browsers/chromium')
 const outDir = process.argv[2]
 
 if (!outDir) {
@@ -47,6 +49,9 @@ const LONG = [
 ]
 const SPECIAL = ['<script>alert("x")</script>', 'a & b < c > d "quoted"', "it's &amp; &lt;b&gt;", '</text><rect/>']
 const UNICODE = ['日本語のタスクを実行する', '🚀 deploy 🎉 to prod', 'Ünïcödé façade — naïve café', '🧑‍💻 pair 👩‍👩‍👧‍👦 family']
+// Characters XML forbids, an ANSI sequence, and wide astral text: none may stop the SVG from parsing. Raw, as
+// panel()'s last line of defence: in the mod, register.tsx's clean() has already dropped the escape sequences.
+const CONTROLS = ['scan\u0007repo', 'red \u001b[31mtext\u001b[0m', 'nul\u0000byte\ufffe', '𠀀𠀁𠀂 ext-b 🇯🇵 flag']
 
 const agent = (i: number, duty: string, model = MODELS[i % MODELS.length], isRunning = i % 3 !== 2): Agent => ({
   key: `a${i}`,
@@ -123,6 +128,12 @@ const SCENARIOS: Record<string, Panel> = {
   'final-round': base({ week: 93, five: 95, ctx: 96, debt: '12', agents: many(4, SHORT) }),
   'final-round-workflow': base({ week: 100, five: 100, ctx: 100, debt: '999', agents: many(9, LONG), runs: [run(4, 2, LONG)] }),
   'week-tiny': base({ week: 3, ctx: 0, five: 0, resets: '' }),
+  'agents-4-controls': base({ agents: many(4, CONTROLS), runs: [{ ...run(2, 0, CONTROLS), name: CONTROLS[0] }] }),
+  'agents-4-bedrock': base({ agents: [main(), ...[0, 1, 2].map(i => agent(i, 'scan', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'))] }),
+  'workflow-many-phases': base({
+    runs: [{ ...run(4, 2), phases: Array.from({ length: 6 }, (_, i) => ({ name: `phase-${i}-long-name`, done: i, total: 6 })) }],
+  }),
+  'long-project-name': base({ name: 'a-really-long-project-folder-name-that-goes-on-and-on' }),
 }
 
 // ---- in-page measurement ---------------------------------------------------------------------------------------
@@ -227,7 +238,8 @@ function check(m: Measured) {
     }
   }
 
-  if (m.maxX > m.vw + 1 || m.minX < -1) {
+  // TOL, as for text in plates: an italic glyph at an edge (the A of a project name) overhangs by about half a unit.
+  if (m.maxX > m.vw + TOL || m.minX < -TOL) {
     bad.push(`bounds: drawn extent x ${m.minX}..${m.maxX} outside 0..${m.vw}`)
   }
   if (m.maxY > m.vh + 1) {
@@ -271,6 +283,9 @@ for (const [name, state] of Object.entries(SCENARIOS)) {
       const m = (await page.evaluate(MEASURE)) as Measured & { font: string }
       font = m.font
       const bad = check(m)
+      // The host draws the band as an SVG image, which must parse as XML (innerHTML above is more forgiving).
+      const xmlError = await page.evaluate(s => new DOMParser().parseFromString(s, 'image/svg+xml').querySelector('parsererror')?.textContent ?? '', svg)
+      if (xmlError) bad.push(`xml: ${xmlError.slice(0, 120)}`)
       for (const p of m.plates) {
         if (p.squeeze < worstSq.min) worstSq = { ...worstSq, min: p.squeeze, minAt: `${name} ${JSON.stringify(Array.from(p.text).slice(0, 30).join(''))}` }
         if (p.squeeze > worstSq.max) worstSq = { ...worstSq, max: p.squeeze, maxAt: `${name} ${JSON.stringify(Array.from(p.text).slice(0, 30).join(''))}` }

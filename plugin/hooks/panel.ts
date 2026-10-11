@@ -11,7 +11,14 @@ const TINT: [RegExp, string][] = [
 
 export const tint = (model = '') => TINT.find(([re]) => re.test(model))?.[1] ?? '#D97757'
 
-export const short = (model?: string) => model?.replace(/^claude-/, '') ?? 'model ?'
+// A model's short name: claude-sonnet-5-5 → sonnet-5-5. Bedrock and Vertex ids lose their region, provider and
+// version wrapping too: us.anthropic.claude-sonnet-4-5-20250929-v1:0 and claude-sonnet-4-5@20250929 → sonnet-4-5.
+export const short = (model?: string) =>
+  model
+    ?.replace(/^(?:[a-z]{2,6}\.)?anthropic\./, '')
+    .replace(/^claude-/, '')
+    .replace(/-v\d+(?::\d+)?$/, '')
+    .replace(/[-@]\d{8}$/, '') ?? 'model ?'
 
 export const clamp = (n: number) => Math.min(100, Math.max(0, n))
 
@@ -58,7 +65,12 @@ export const countdown = (iso: string | undefined, now: number) => {
 
 export const textBar = (pct: number) => '█'.repeat(Math.round(clamp(pct) / 10)) + '░'.repeat(10 - Math.round(clamp(pct) / 10))
 
-const esc = (s: string) => s.replace(/[<>&"]/g, c => `&#${c.charCodeAt(0)};`)
+// The characters XML forbids outright (C0 controls but tab, newline and CR; U+FFFE and U+FFFF): no reference can
+// stand in for them, and one would stop the whole band from drawing. Dropped when escaping, and not measured.
+const XML_BAD = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g
+
+// Escapes markup for text content.
+const esc = (s: string) => s.replace(XML_BAD, '').replace(/[<>&"]/g, c => `&#${c.charCodeAt(0)};`)
 
 // A slanted Tekken frame at the origin: dark track, `inner` clipped to it under a gloss, light outline.
 function frame(id: string, inner: string, w: number, h: number, slant: number) {
@@ -124,9 +136,15 @@ text{font-family:system-ui,-apple-system,sans-serif;font-style:italic;font-weigh
 // Text is measured and cut by grapheme, so an emoji sequence or an accented letter is never split; Intl.Segmenter
 // where the runtime has it, else by code point. East Asian wide characters and emoji take two narrow ones' room,
 // as in a terminal, so CJK isn't squeezed into a plate sized for Latin and an emoji sequence isn't stretched.
+// Wide: CJK, Hangul and fullwidth forms (the astral CJK extensions too), flags, and emoji drawn as emoji; a text
+// symbol like © or ✔ stays narrow unless a variation selector asks for its emoji form.
 const SEG = typeof Intl !== 'undefined' && 'Segmenter' in Intl ? new Intl.Segmenter() : undefined
-const WIDE = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]|\p{Extended_Pictographic}/u
-const graphemes = (s: string) => (SEG ? Array.from(SEG.segment(s), g => g.segment) : Array.from(s))
+const WIDE =
+  /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6\u{16fe0}-\u{1b2ff}\u{1f1e6}-\u{1f1ff}\u{20000}-\u{3fffd}\ufe0f]|\p{Emoji_Presentation}/u
+const graphemes = (s: string) => {
+  const t = s.replace(XML_BAD, '')
+  return SEG ? Array.from(SEG.segment(t), g => g.segment) : Array.from(t)
+}
 const room1 = (g: string) => (WIDE.test(g) ? 2 : 1)
 
 // How much room text takes, in narrow characters.
@@ -134,6 +152,10 @@ export const span = (s: string) => graphemes(s).reduce((n, g) => n + room1(g), 0
 
 // Text cut to n narrow characters' room, its last one an ellipsis when anything was dropped.
 export const cut = (s: string, n: number) => {
+  if (!(n > 0)) {
+    return ''
+  }
+
   if (span(s) <= n) {
     return s
   }
@@ -190,7 +212,7 @@ export function panel(p: Panel) {
   let mx = 0
 
   const versus = `
-<text x="0" y="14" class="v">${esc(p.name.toUpperCase())}<tspan class="l"> · CTX ${p.ctx}%</tspan></text>
+<text x="0" y="14" class="v">${esc(cut(p.name.toUpperCase(), 30))}<tspan class="l"> · CTX ${p.ctx}%</tspan></text>
 <text x="1000" y="14" text-anchor="end" class="l">5H LIMIT ${p.five}%${p.resets ? ` · ${p.resets}` : ''}</text>
 <g transform="translate(0,22)">${bar('p1', p.ctx, heat(p.ctx), p.ctx >= 90, 436, 22, 12)}</g>
 <g transform="translate(1000,22) scale(-1,1)">${bar('p2', 100 - p.five, heat(p.five), p.five >= 90, 436, 22, 12)}</g>
@@ -249,15 +271,21 @@ ${tag(84, `TODAY $${total.toFixed(2)}`)}
   let y = below + Math.ceil(p.agents.length / cols) * 24
   const runs = (p.runs ?? [])
     .map(r => {
-      // Each phase: its name (cut to 12) and a pip per agent; widths estimated as drawn.
-      const phases = r.phases.map(ph => ({
-        name: cut(ph.name.toUpperCase(), 12),
-        dots: Array.from({ length: Math.max(1, ph.total) }, (_, i) => (i < ph.done ? '●' : '○')).join(''),
-      }))
+      // Each phase: its name and a pip per agent, widths estimated as drawn. Past half the plate they give way:
+      // names cut to 12, then to 3, then the pips become done/total counts.
+      const PIPS = 420
+      const pipsOf = (n: number, isCount: boolean) =>
+        r.phases.map(ph => ({
+          name: cut(ph.name.toUpperCase(), n),
+          dots: isCount ? `${ph.done}/${ph.total}` : Array.from({ length: Math.max(1, ph.total) }, (_, i) => (i < ph.done ? '●' : '○')).join(''),
+          per: isCount ? 9.4 : 12,
+        }))
+      const widthOf = (phs: ReturnType<typeof pipsOf>) => phs.reduce((n, ph) => n + GAP + span(ph.name) * 9.4 + 5 + ph.dots.length * ph.per, 0)
+      const phases = [pipsOf(12, false), pipsOf(3, false), pipsOf(3, true)].find(phs => widthOf(phs) <= PIPS) ?? pipsOf(3, true)
       const pips = phases
         .map(ph => `<tspan class="pl" dx="${GAP}">${esc(ph.name)}</tspan><tspan fill="#f5c542" style="fill:#f5c542" dx="5">${ph.dots}</tspan>`)
         .join('')
-      const pipW = phases.reduce((n, ph) => n + GAP + span(ph.name) * 9.4 + 5 + ph.dots.length * 12, 0)
+      const pipW = widthOf(phases)
       // The name line gets the room the pips leave, so the plate never has to squeeze it.
       const room = Math.max(16, Math.floor((850 - 58 - pipW) / 10.4))
       const headText = cut(`${r.name.toUpperCase()} · ${elapsed(r.secs)} · ${r.count} AGENT${r.count === 1 ? '' : 'S'}`, room)

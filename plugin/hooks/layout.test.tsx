@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing'
 
-import { cell, columns, cut, panel, span } from './panel'
+import { cell, columns, cut, panel, short, span } from './panel'
 import type { Agent, Panel, Run } from './panel'
 
 // Pure tests of the band's column layout: `cell`, `columns` and the SVG `panel` draws from them. No engine needed;
@@ -44,6 +44,8 @@ const LONG = 'W5-4 Opus: robustness + consolidation across the whole repo'
 type Plate = { kind: 'agent' | 'head' | 'wf'; x: number; y: number; w: number; textLength?: number; main: string; side: string; stripe: string; isFaded: boolean }
 
 const unesc = (s: string) => s.replace(/&#(\d+);/g, (_, c) => String.fromCharCode(Number(c)))
+// What the band can draw of a string: the characters XML forbids are dropped.
+const drawable = (s: string) => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g, '')
 
 function parse(svg: string) {
   const re = /<g transform="translate\((-?[\d.]+),(-?[\d.]+)\)">\s*<polygon points="8,0 ([\d.]+),0 [\d.]+,18 0,18" fill="#1b1b1b" stroke="(#[0-9a-f]+)"[\s\S]*?\n<\/g>/g
@@ -72,7 +74,9 @@ function parse(svg: string) {
   return { plates, height: Number(height), scaled: Number(scaled), more }
 }
 
-const le = (a: number, b: number) => expect(a <= b).toBe(true)
+const le = (a: number, b: number) => {
+  if (!(a <= b)) throw new Error(`expected ${a} <= ${b}`)
+}
 const count = (svg: string, needle: string) => svg.split(needle).length - 1
 
 // Distinct rows' plate counts, top to bottom.
@@ -173,6 +177,7 @@ function check(name: string, p: Panel) {
   ok(!/&(?!#\d+;)/.test(svg), at('a raw ampersand'))
   ok(!/<script|<img|<iframe|onload=|onerror=/i.test(svg), at('raw markup'))
   for (const junk of ['NaN', 'undefined', 'Infinity', '[object']) ok(!svg.includes(junk), at(`"${junk}" in the SVG`))
+  ok(!/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/.test(svg), at('a character XML forbids'))
 
   // Waiting agents are faded, running ones are not.
   ok(count(svg, 'fill-opacity="0.35"') === p.agents.filter(a => !a.isRunning).length, at('faded plates'))
@@ -183,8 +188,9 @@ function check(name: string, p: Panel) {
     const a = p.agents[i]!
     ok(unesc(pl.main) === (a.model === undefined ? 'model ?' : a.model.replace(/^claude-/, '')).toUpperCase(), at(`agent ${i} name "${pl.main}"`))
     const duty = unesc(pl.side)
-    const isWhole = duty === a.duty
-    ok(isWhole || (duty.endsWith('…') && a.duty.startsWith(duty.slice(0, -1)) && duty.length < a.duty.length), at(`agent ${i} duty "${duty}" is not "${a.duty}" or a cut of it`))
+    const whole = drawable(a.duty)
+    const isWhole = duty === whole
+    ok(isWhole || (duty.endsWith('…') && whole.startsWith(duty.slice(0, -1)) && duty.length <= whole.length), at(`agent ${i} duty "${duty}" is not "${whole}" or a cut of it`))
     if (cols === 3) ok(isWhole, at(`agent ${i} cut in three columns: "${duty}"`))
   })
   // Same for the workflow labels.
@@ -193,8 +199,8 @@ function check(name: string, p: Panel) {
     r.agents.forEach(a => {
       const pl = wfs[k++]!
       const label = unesc(pl.main)
-      const up = a.label.toUpperCase()
-      ok(label === up || (label.endsWith('…') && up.startsWith(label.slice(0, -1)) && label.length < up.length), at(`label "${label}" is not "${up}" or a cut of it`))
+      const up = drawable(a.label.toUpperCase())
+      ok(label === up || (label.endsWith('…') && up.startsWith(label.slice(0, -1)) && label.length <= up.length), at(`label "${label}" is not "${up}" or a cut of it`))
       ok(span(label) <= 40, at(`label longer than 40: ${span(label)}`))
       ok(unesc(pl.side).startsWith(a.model.replace(/^claude-/, '').toUpperCase()), at(`wf meta "${pl.side}"`))
     }),
@@ -452,7 +458,7 @@ test('panel: unicode and emoji duties are drawn as they are', () => {
   for (const d of duties) expect(r.svg).toContain(d)
   const solo = check('emoji only', base({ agents: agents(['🔥']) }))
   expect(solo.svg).toContain('🔥')
-  // Wide characters are not counted double (the plate is an estimate and textLength squeezes the text), but nothing leaves the grid.
+  // Wide characters count double, so a long CJK duty is cut sooner; nothing leaves the grid.
   const wide = check('wide', base({ agents: agents(['日本語'.repeat(20)]) }))
   le(wide.plates[0]!.x + wide.plates[0]!.w, 1000)
 })
@@ -466,6 +472,38 @@ test('span counts wide characters and emoji as two, a whole emoji sequence as on
   expect(span('👩‍👩‍👧‍👦')).toBe(2)
   expect(span('café')).toBe(4)
   expect(span('e\u0301')).toBe(1)
+})
+
+test('span: astral CJK, flags and keycaps are wide; text symbols stay narrow; controls take no room', () => {
+  expect(span('𠀀𠀁𠀂')).toBe(6)
+  expect(span('🇯🇵')).toBe(2)
+  expect(span('1️⃣')).toBe(2)
+  expect(span('©')).toBe(1)
+  expect(span('✔')).toBe(1)
+  expect(span('⚠️')).toBe(2)
+  expect(span('a\u0007b\u0000')).toBe(2)
+})
+
+test('short: Bedrock and Vertex ids lose their wrapping; plain ids keep theirs', () => {
+  expect(short('claude-opus-5-5')).toBe('opus-5-5')
+  expect(short('us.anthropic.claude-sonnet-4-5-20250929-v1:0')).toBe('sonnet-4-5')
+  expect(short('anthropic.claude-3-5-sonnet-20240620-v1:0')).toBe('3-5-sonnet')
+  expect(short('claude-sonnet-4-5@20250929')).toBe('sonnet-4-5')
+  expect(short('claude-haiku-4-5-20251001')).toBe('haiku-4-5')
+  expect(short('model ?')).toBe('model ?')
+  expect(short(undefined)).toBe('model ?')
+})
+
+test('cut: no room cuts to nothing', () => {
+  expect(cut('scan', 0)).toBe('')
+  expect(cut('scan', -3)).toBe('')
+  expect(cut('scan', NaN)).toBe('')
+})
+
+test('panel: control characters anywhere never reach the SVG, so the band still draws', () => {
+  const bad = 'scan\u0007repo\u0000\u001b[31m\u000b\ufffe'
+  const r = check('controls', base({ name: `proj${bad}`, agents: agents([bad, 'lint']), runs: [run(2, bad, { name: bad, phases: [{ name: bad, done: 1, total: 2 }] })] }))
+  expect(r.svg).toContain('scanrepo')
 })
 
 test('cut keeps text within n narrow characters, never splitting a grapheme', () => {
@@ -703,8 +741,17 @@ test('panel: a run with many phases or long names keeps its head inside the grid
   le(head.w, 850)
   le(head.x + head.w, 1000)
   le(10, head.textLength)
-  // Phase names are cut at 12 characters; a phase with no agents draws a single hollow pip.
-  expect(r.svg).toContain('PHASE-NUMBE…')
+  // Twelve phases can't keep names and pips: the names cut to 3 and the pips become done/total counts.
+  expect(r.svg).toContain('PH…')
+  expect(r.svg).toContain('11/12')
+  expect(r.svg).not.toContain('●●●●')
+  // Two phases of five keep their names and pips; four phases of six give way, as half the plate allows.
+  const two = check('two phases', base({ runs: [run(2, 'a', { phases: [{ name: 'review', done: 2, total: 5 }, { name: 'verify', done: 0, total: 5 }] })] }))
+  expect(two.svg).toContain('REVIEW')
+  expect(two.svg).toContain('●●○○○')
+  const four = check('four phases', base({ runs: [run(2, 'a', { phases: Array.from({ length: 4 }, (_, i) => ({ name: `phase${i}`, done: 3, total: 6 })) })] }))
+  expect(four.svg).toContain('3/6')
+  // A phase with no agents draws a single hollow pip.
   const odd = check('empty phases', base({ runs: [run(1, 'a', { phases: [] }), run(1, 'a', { phases: [{ name: '', done: 0, total: 0 }] })] }))
   expect(odd.svg).toContain('○')
 })
@@ -744,7 +791,7 @@ test('panel: the geometry holds for a few hundred pseudo-random sessions', () =>
     return seed % n
   }
   const models = [OPUS, SONNET, 'claude-haiku-5-5', 'claude-fable-5-5', 'claude-some-very-long-model-name-9-9-9', 'x']
-  const chars = 'abc XYZ-_:/+<>&"é日'
+  const chars = ['a', 'b', 'c', ' ', 'X', 'Y', 'Z', '-', '_', ':', '/', '+', '<', '>', '&', '"', 'é', '日', '\u0000', '\u0007', '\u001b', '\n', '\t', '🇯🇵', '𠀀', '👩‍👩‍👧‍👦']
   const word = (n: number) => Array.from({ length: n }, () => chars[rnd(chars.length)]).join('')
   const lens = [0, 1, 5, 12, 16, 17, 25, 35, 36, 50, 89, 90, 91, 150]
 

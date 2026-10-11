@@ -22,7 +22,7 @@ https://github.com/user-attachments/assets/66344f22-7c74-44cb-829c-7b959ea552c1
 
 **TODAY $** is today's spend broken down by model, via ccusage.
 
-**RUNNING** shows one nameplate per live agent, with its model and its duty. They sit side by side, up to three a row, when each fits its column whole; past three agents they pair up regardless, the duties cut to fit, so a busy session keeps the band short. The terminal does the same with text columns.
+**RUNNING** shows one nameplate per live agent, with its model and its duty. They sit side by side, up to three a row, when each fits its column whole; past three agents they pair up regardless, the duties cut to fit, so a busy session keeps the band short. The terminal does the same with text columns, pairing past three agents only while half a row holds 30 characters.
 
 ![Agents](media/agents.gif)
 
@@ -71,7 +71,7 @@ What `setup.sh` and `setup.ps1` check for, and what happens without each:
 |---|---|---|
 | git | the DEBT count (`git grep`, so ignored files stay out) | DEBT shows `?` |
 | Node | runs ccusage for the TODAY spend row | the TODAY row hides |
-| ccusage 20.0.26 | today's spend by model | falls back to `npx`, a few seconds slower per turn |
+| ccusage 20.0.26 | today's spend by model | falls back to `npx`, a few seconds slower each time the spend refreshes (at most once a minute) |
 
 `sh setup.sh --check` (or `.\setup.ps1 -Check` on Windows) reports what's missing without installing anything. The desktop app doesn't load your shell profile, so the hooks add `/opt/homebrew/bin` and `/usr/local/bin` to the app's own PATH; a `ccusage` or `node` installed by nvm, volta or fnm needs a symlink into `/usr/local/bin`. On Windows the hooks add `%APPDATA%\npm`, `%ProgramFiles%\nodejs` and Git's `cmd` folder instead; a `ccusage` installed by nvm-windows, volta or fnm needs its folder on the system PATH. `irm | iex` can't take parameters, so download `setup.ps1` first to use `-Check`.
 
