@@ -121,7 +121,11 @@ text{font-family:system-ui,-apple-system,sans-serif;font-style:italic;font-weigh
 @media (prefers-color-scheme:light){.l,.d{fill:#5f5f5f}.v{fill:#2b2b2b}}
 </style>`
 
-const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
+// Cut by code points, so an emoji or other astral character is never split into a lone surrogate.
+const cut = (s: string, n: number) => {
+  const chars = Array.from(s)
+  return chars.length > n ? `${chars.slice(0, n - 1).join('')}…` : s
+}
 
 // The gap between a plate's name and its details: a dx offset, since SVG collapses runs of spaces.
 const GAP = 12
