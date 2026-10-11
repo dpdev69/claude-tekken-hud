@@ -477,12 +477,23 @@ export const register: Register = on => {
     const wfWidth = width - 2
     return (
       <Box flexDirection="column">
-        <Box key="versus" gap={1}>
-          <Text bold>{name}</Text>
-          <Text color={heat(ctxPct)}>{textBar(ctxPct)}</Text>
-          <Text bold color="#f5c542">[ {debtCount} ]</Text>
-          <Text color={heat(fiveUsed)}>{textBar(100 - fiveUsed).split('').reverse().join('')}</Text>
-          <Text dimColor>5h {fiveUsed}%{resets ? ` · ${resets}` : ''}</Text>
+        {/* On a narrow terminal the gauges wrap whole rather than squeeze; only the project name truncates. */}
+        <Box key="versus" columnGap={1} flexWrap="wrap">
+          <Text bold wrap="truncate-end">
+            {name}
+          </Text>
+          <Box flexShrink={0}>
+            <Text color={heat(ctxPct)}>{textBar(ctxPct)}</Text>
+          </Box>
+          <Box flexShrink={0}>
+            <Text bold color="#f5c542">[ {debtCount} ]</Text>
+          </Box>
+          <Box flexShrink={0}>
+            <Text color={heat(fiveUsed)}>{textBar(100 - fiveUsed).split('').reverse().join('')}</Text>
+          </Box>
+          <Box flexShrink={0}>
+            <Text dimColor>5h {fiveUsed}%{resets ? ` · ${resets}` : ''}</Text>
+          </Box>
         </Box>
         <Box key="stamina" gap={1}>
           <Text dimColor>7d stamina</Text>
@@ -495,12 +506,17 @@ export const register: Register = on => {
           )}
         </Box>
         {costs.length > 0 && (
-          <Box key="mix" gap={1}>
-            <Text dimColor>today ${mixTotal.toFixed(2)}</Text>
+          // Each item wraps whole on a narrow terminal, so a share never lands on a line apart from its model.
+          <Box key="mix" columnGap={1} flexWrap="wrap">
+            <Box flexShrink={0}>
+              <Text dimColor>today ${mixTotal.toFixed(2)}</Text>
+            </Box>
             {costs.map(c => (
-              <Text key={`mix-${c.model}`} color={tint(c.model)}>
-                ■ {short(c.model).replace(/-\d.*$/, '')} {Math.round((100 * c.cost) / (mixTotal || 1))}%
-              </Text>
+              <Box key={`mix-${c.model}`} flexShrink={0}>
+                <Text color={tint(c.model)}>
+                  ■ {short(c.model).replace(/-\d.*$/, '')} {Math.round((100 * c.cost) / (mixTotal || 1))}%
+                </Text>
+              </Box>
             ))}
           </Box>
         )}
